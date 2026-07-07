@@ -890,12 +890,36 @@ body {
 .sq-drawer__close:hover { background: rgba(255, 255, 255, 0.1); color: var(--sq-text-1); }
 
 /* ── Drag-and-drop affordances ─────────────────────────────────────── */
-.story-card--draggable { cursor: grab; }
+.story-card--draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
 .story-card--draggable:active { cursor: grabbing; }
 .board-column--drop {
   background: var(--sq-accent-soft);
   border-color: var(--sq-accent);
   border-style: solid;
+}
+.board-column__insert-line {
+  position: relative;
+  flex: none;
+  height: 3px;
+  margin: -2px 6px;
+  border-radius: 999px;
+  background: var(--sq-accent);
+  box-shadow: 0 0 0 3px var(--sq-accent-soft), 0 0 18px rgba(126, 167, 255, 0.45);
+}
+.board-column__insert-line::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--sq-accent);
+  transform: translateY(-50%);
 }
 
 /* ── Toasts + notifications ────────────────────────────────────────── */
@@ -997,7 +1021,7 @@ body {
 }
 .sq-kind-chip--bug { color: var(--sq-danger); background: rgba(255, 107, 107, 0.14); }
 .sq-kind-chip--feature { color: var(--sq-accent); background: var(--sq-accent-soft); }
-.story-card--dragging { opacity: 0.4; }
+.story-card--dragging { opacity: 0.4; transform: scale(0.99); }
 
 /* ── Drawer filing section ─────────────────────────────────────────── */
 .sq-file-manual { display: flex; gap: var(--sq-2); margin-top: var(--sq-3); }

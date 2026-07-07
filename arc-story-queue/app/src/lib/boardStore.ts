@@ -559,6 +559,7 @@ export class BoardStore {
     }
     const story = parseToolResult<Story>(result);
     this.reduce((state) => upsertStoryInState(state, story));
+    await this.loadQueue();
     return story;
   }
 

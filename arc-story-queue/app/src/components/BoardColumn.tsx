@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Column } from "arc-contracts";
 import type { BoardStory } from "../lib/boardStore";
 import { COLUMN_LABELS, columnDotColor } from "../lib/boardStore";
@@ -9,16 +11,13 @@ interface BoardColumnProps {
   emptyHint: string;
   onEnqueue?: (id: string) => void;
   onOpen?: (id: string) => void;
-  // drag-and-drop
+  // pointer drag-and-drop
   draggableCards?: boolean;
   isDropTarget?: boolean;
   draggingId?: string | null;
-  onCardDragStart?: (id: string) => void;
-  onCardDropBefore?: (beforeId: string) => void;
-  onCardDragEnd?: () => void;
-  onColumnDragOver?: () => void;
-  onColumnDragLeave?: () => void;
-  onColumnDrop?: () => void;
+  insertionBeforeId?: string | null;
+  showInsertionMarker?: boolean;
+  onCardPointerDragStart?: (id: string, event: ReactPointerEvent<HTMLElement>) => void;
 }
 
 const EMPTY_HINTS: Record<Column, string> = {
@@ -38,12 +37,9 @@ export function BoardColumn({
   draggableCards,
   isDropTarget,
   draggingId,
-  onCardDragStart,
-  onCardDropBefore,
-  onCardDragEnd,
-  onColumnDragOver,
-  onColumnDragLeave,
-  onColumnDrop,
+  insertionBeforeId,
+  showInsertionMarker,
+  onCardPointerDragStart,
 }: BoardColumnProps) {
   const isQueued = column === "queued";
   const isRunning = column === "in_progress";
@@ -52,23 +48,6 @@ export function BoardColumn({
     <section
       className={`board-column${isDropTarget ? " board-column--drop" : ""}`}
       data-column={column}
-      onDragOver={
-        onColumnDragOver
-          ? (e) => {
-              e.preventDefault();
-              onColumnDragOver();
-            }
-          : undefined
-      }
-      onDragLeave={onColumnDragLeave ? () => onColumnDragLeave() : undefined}
-      onDrop={
-        onColumnDrop
-          ? (e) => {
-              e.preventDefault();
-              onColumnDrop();
-            }
-          : undefined
-      }
     >
       <header className="board-column__header">
         <span className="board-column__dot" style={{ background: columnDotColor(column) }} />
@@ -79,18 +58,23 @@ export function BoardColumn({
       </header>
       <div className="board-column__cards">
         {stories.map((story, i) => (
-          <StoryCard
-            key={story.id}
-            story={story}
-            queueIndex={isQueued ? i : undefined}
-            onEnqueue={onEnqueue}
-            onOpen={onOpen}
-            onDragStart={draggableCards ? onCardDragStart : undefined}
-            onDropBefore={draggableCards ? onCardDropBefore : undefined}
-            onDragEnd={draggableCards ? onCardDragEnd : undefined}
-            dragging={draggableCards && draggingId === story.id}
-          />
+          <Fragment key={story.id}>
+            {showInsertionMarker && insertionBeforeId === story.id && (
+              <div className="board-column__insert-line" aria-hidden />
+            )}
+            <StoryCard
+              story={story}
+              queueIndex={isQueued ? i : undefined}
+              onEnqueue={onEnqueue}
+              onOpen={onOpen}
+              onPointerDragStart={draggableCards ? onCardPointerDragStart : undefined}
+              dragging={draggableCards && draggingId === story.id}
+            />
+          </Fragment>
         ))}
+        {showInsertionMarker && insertionBeforeId === null && (
+          <div className="board-column__insert-line" aria-hidden />
+        )}
         {stories.length === 0 && (
           <div className="board-column__empty">{emptyHint || EMPTY_HINTS[column]}</div>
         )}
