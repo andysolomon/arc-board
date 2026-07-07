@@ -1,6 +1,6 @@
-# app — desktop board (Tauri)
+# app — Vite web board
 
-The primary client. Recreate the interaction model from the prototype (`Story Queue.dc.html`), styled with `tokens.css`.
+The primary client is a React + Vite web app, styled with `tokens.css` and following the interaction model from the prototype (`Story Queue.dc.html`). Tauri packaging is deferred/optional and is not required for v1 development.
 
 ## Views
 - **Board** — 5 columns (Backlog / Queued / In Progress / Review / Done), drag-and-drop, W-ids, DRAFT / BUG·Sn badges, GitHub import, per-project scope via the titlebar switcher.

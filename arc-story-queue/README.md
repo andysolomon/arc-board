@@ -1,16 +1,17 @@
 # arc-story-queue
 
-MCP server + desktop board for feeding a story queue to live Claude Code sessions. Fable (arc-orchestrator) pulls the top story, opens an isolated git worktree, and delegates bounded tasks to worker routes.
+MCP server + Vite web board for feeding a story queue to live Claude Code sessions. Fable (arc-orchestrator) pulls the top story, opens an isolated git worktree, and delegates bounded tasks to worker routes.
 
 ## Layout
 
 ```
 arc-story-queue/
-  mcp-server/        # headless engine — the source of truth
-    server.ts        # MCP tool surface (queue.next, story.*, project.*)
-    queue.ts         # queue ordering + worktree/lock manager
-  app/               # Tauri desktop client (primary face)
-  .mcp.json.example  # how a Claude Code session attaches
+  packages/arc-contracts/  # shared TypeScript types + JSON Schemas (single source of truth)
+  mcp-server/              # headless engine — the source of truth
+    server.ts              # MCP tool surface (queue.next, story.*, project.*)
+    queue.ts               # queue ordering + worktree/lock manager
+  app/                     # React + Vite web client
+  .mcp.json.example        # how a Claude Code session attaches
 ```
 
 ## The pipeline
@@ -30,10 +31,14 @@ The app doesn't clone or spawn. It discovers running Claude Code sessions over M
 ## Getting started
 
 ```bash
-pnpm install
-pnpm --filter mcp-server dev     # start the MCP server on :7420
-pnpm --filter app tauri dev      # start the desktop board
+npm install
+npm test                         # builds workspaces and runs the daemon + app tests
+npm run build                    # builds arc-contracts and the MCP server
+npm run start -w story-queue-mcp # start the MCP server on :7420
+npm run dev -w arc-story-queue-app # start the Vite web board
 ```
+
+The current supported client runtime is the Vite web app in `app/`. Tauri packaging is deferred to a later desktop shell; any Tauri scripts/files are optional and not part of the v1 getting-started path.
 
 ## Fable pull loop
 
