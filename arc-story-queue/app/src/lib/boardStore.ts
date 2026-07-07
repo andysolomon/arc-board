@@ -56,9 +56,24 @@ export interface Toast {
   kind: ToastKind;
   message: string;
 }
+export interface ActivityMeta {
+  icon: string;
+  subject: string;
+  text: string;
+  tone: string;
+}
+
+export interface ActivityItem extends ActivityMeta {
+  id: string;
+  message: string;
+  ts: number;
+  read: boolean;
+}
+
 export interface AppNotification extends Toast {
   ts: number;
   read: boolean;
+  activity: ActivityMeta;
 }
 
 export interface ModelCompleteArgs {
@@ -105,7 +120,9 @@ export type LifecycleKind =
   | "unqueued"
   | "drafted"
   | "file-requested"
-  | "filed";
+  | "filed"
+  | "merged"
+  | "escalated";
 
 export interface StoryLifecycleEvent {
   type: "story.event";
@@ -327,6 +344,38 @@ function normalizeModelDrafts(kind: IntakeKind, parsed: unknown): IntakeDraftPro
 
 function laneFromRoute(route: string): WorkerLane {
   return { route, status: "running", lines: [] };
+}
+
+function defaultActivityMeta(kind: ToastKind, message: string): ActivityMeta {
+  const icon: Record<ToastKind, string> = {
+    info: "•",
+    success: "✓",
+    error: "!",
+  };
+  return { icon: icon[kind], subject: message, text: "", tone: kind };
+}
+
+function lifecycleActivityLabel(evt: StoryLifecycleEvent): string {
+  const title = evt.title ?? evt.id;
+  return evt.wid ? `${evt.wid} — “${title}”` : `“${title}”`;
+}
+
+function lifecycleActivityMeta(evt: StoryLifecycleEvent): ActivityMeta {
+  const label = lifecycleActivityLabel(evt);
+  const map: Record<LifecycleKind, ActivityMeta> = {
+    queued: { icon: "➕", subject: "Queue", text: `queued ${label}`, tone: "queued" },
+    started: { icon: "◈", subject: "Fable", text: `started ${label}`, tone: "started" },
+    review: { icon: "◇", subject: "Fable", text: `moved ${label} to review`, tone: "review" },
+    done: { icon: "✓", subject: "Fable", text: `completed ${label}`, tone: "done" },
+    abandoned: { icon: "↯", subject: "Fable", text: `abandoned ${label}`, tone: "abandoned" },
+    unqueued: { icon: "↩", subject: "Queue", text: `moved ${label} back to backlog`, tone: "unqueued" },
+    drafted: { icon: "✎", subject: "Fable", text: `drafted ${label}`, tone: "drafted" },
+    "file-requested": { icon: "⇢", subject: "You", text: `asked Fable to file ${label}`, tone: "file-requested" },
+    filed: { icon: "⊕", subject: "Fable", text: `filed ${label}`, tone: "filed" },
+    merged: { icon: "✓", subject: "You", text: `merged ${label}`, tone: "merged" },
+    escalated: { icon: "↥", subject: "Fable", text: `escalated ${label}`, tone: "escalated" },
+  };
+  return map[evt.kind];
 }
 
 function lanesFromLines(lines: TerminalLine[]): Record<string, WorkerLane> {
@@ -572,9 +621,11 @@ export class BoardStore {
       drafted: { kind: "success", msg: `Drafted ${label}` },
       "file-requested": { kind: "info", msg: `Filing requested: ${label}` },
       filed: { kind: "success", msg: `Filed ${label}` },
+      merged: { kind: "success", msg: `Merged ${label}` },
+      escalated: { kind: "info", msg: `Escalated ${label}` },
     };
     const m = map[evt.kind];
-    if (m) this.notify(m.kind, m.msg);
+    if (m) this.notify(m.kind, m.msg, lifecycleActivityMeta(evt));
     if (this.state.project) void this.refreshViews().catch(() => undefined);
   }
 
@@ -1059,12 +1110,17 @@ export class BoardStore {
     this.patch({ detail: null });
   }
 
-  /** Emit a transient toast + a persistent notification entry. */
-  notify(kind: ToastKind, message: string): void {
+  /** Emit a transient toast + a persistent notification/activity entry. */
+  notify(kind: ToastKind, message: string, activity?: Partial<ActivityMeta>): void {
     this.notifySeq += 1;
     const id = `ntf-${this.notifySeq}`;
     const toast: Toast = { id, kind, message };
-    const note: AppNotification = { ...toast, ts: Date.now(), read: false };
+    const note: AppNotification = {
+      ...toast,
+      ts: Date.now(),
+      read: false,
+      activity: { ...defaultActivityMeta(kind, message), ...activity },
+    };
     this.patch({
       toasts: [...this.state.toasts, toast],
       notifications: [note, ...this.state.notifications].slice(0, 50),
@@ -1086,6 +1142,16 @@ export class BoardStore {
 
   getNotifications(): AppNotification[] {
     return this.state.notifications;
+  }
+
+  getActivityItems(): ActivityItem[] {
+    return this.state.notifications.map((n) => ({
+      id: n.id,
+      message: n.message,
+      ts: n.ts,
+      read: n.read,
+      ...n.activity,
+    }));
   }
 
   unreadCount(): number {

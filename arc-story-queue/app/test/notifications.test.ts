@@ -10,7 +10,25 @@ describe("notifications + toasts (store logic)", () => {
     expect(store.getToasts().map((t) => t.message)).toEqual(["queued a", "boom"]);
     // notifications are newest-first
     expect(store.getNotifications().map((n) => n.message)).toEqual(["boom", "queued a"]);
+    expect(store.getActivityItems().map((a) => a.subject)).toEqual(["boom", "queued a"]);
     expect(store.unreadCount()).toBe(2);
+  });
+
+  it("notify can attach structured activity metadata for the timeline", () => {
+    const store = new BoardStore("http://127.0.0.1:9/mcp");
+    store.notify("info", "Queued W-000001 — Story A", {
+      icon: "➕",
+      subject: "Queue",
+      text: "queued W-000001 — “Story A”",
+      tone: "queued",
+    });
+
+    expect(store.getActivityItems()[0]).toMatchObject({
+      icon: "➕",
+      subject: "Queue",
+      text: "queued W-000001 — “Story A”",
+      tone: "queued",
+    });
   });
 
   it("dismissToast removes only the toast, leaving the notification", () => {

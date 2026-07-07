@@ -91,6 +91,12 @@ describe("daemon lifecycle SSE → board activity", () => {
     await wait(300);
     const msgs = store.getNotifications().map((n) => n.message);
     expect(msgs.some((m) => m.includes("Queued") && m.includes("W-000001"))).toBe(true);
+    expect(store.getActivityItems()[0]).toMatchObject({
+      icon: "➕",
+      subject: "Queue",
+      tone: "queued",
+    });
+    expect(store.getActivityItems()[0].text).toContain("W-000001");
   });
 
   it("notifies the board when ANOTHER session enqueues a story (cross-client)", async () => {
@@ -98,6 +104,7 @@ describe("daemon lifecycle SSE → board activity", () => {
     await wait(300);
     const msgs = store.getNotifications().map((n) => n.message);
     expect(msgs.some((m) => m.includes("Queued") && m.includes("W-000002"))).toBe(true);
+    expect(store.getActivityItems()[0].text).toContain("W-000002");
     // cross-client refresh: the board's queue now reflects B without a manual refresh
     expect(store.queueStories().some((s) => s.id === "B")).toBe(true);
   });
