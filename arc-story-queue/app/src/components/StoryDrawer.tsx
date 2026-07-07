@@ -1,7 +1,16 @@
 import { useState, type ReactNode } from "react";
 import type { Story, StoryDetail } from "arc-contracts";
 import type { BoardStore } from "../lib/boardStore";
-import { COLUMN_LABELS, columnDotColor, routeColor } from "../lib/boardStore";
+import {
+  COLUMN_LABELS,
+  columnDotColor,
+  routeAccess,
+  routeColor,
+  routeLabel,
+  routeModel,
+  workerLanes,
+  type WorkerLane,
+} from "../lib/boardStore";
 import { useDialog } from "../lib/useDialog";
 
 interface StoryDrawerProps {
@@ -11,6 +20,9 @@ interface StoryDrawerProps {
 
 export function StoryDrawer({ store, detail }: StoryDrawerProps) {
   const { story, runs, handoff } = detail;
+  const boardStory = store.getState().stories[story.id];
+  const lanes = boardStory ? workerLanes(boardStory) : [];
+  const activeLaneCount = lanes.filter((lane) => lane.status === "running").length;
   const asideRef = useDialog<HTMLElement>(() => store.closeStory());
 
   return (
@@ -25,10 +37,18 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
         tabIndex={-1}
       >
         <header className="sq-drawer__head">
-          <span className="sq-drawer__col">
-            <span className="sq-dot" style={{ background: columnDotColor(story.column) }} />
-            {COLUMN_LABELS[story.column]}
-          </span>
+          <div className="sq-drawer__head-left">
+            <span className="sq-drawer__col">
+              <span className="sq-dot" style={{ background: columnDotColor(story.column) }} />
+              {COLUMN_LABELS[story.column]}
+            </span>
+            {lanes.length > 0 && (
+              <span className="sq-drawer__workers">
+                <span className="sq-dot" />
+                {activeLaneCount > 0 ? `${activeLaneCount} active` : "lanes done"}
+              </span>
+            )}
+          </div>
           <button
             type="button"
             className="sq-drawer__close"
@@ -96,6 +116,16 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
           </Section>
         )}
 
+        {lanes.length > 0 && (
+          <Section label="Delegated run · parallel workers">
+            <div className="sq-lanes">
+              {lanes.map((lane) => (
+                <WorkerLaneTerminal key={lane.route} lane={lane} />
+              ))}
+            </div>
+          </Section>
+        )}
+
         {story.scenarios && story.scenarios.length > 0 && (
           <Section label="Scenarios">
             {story.scenarios.map((s, i) => (
@@ -158,6 +188,47 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
         )}
       </aside>
     </>
+  );
+}
+
+function accessClass(access: string): string {
+  if (access === "write") return "sq-access--write";
+  if (access === "parent") return "sq-access--parent";
+  return "sq-access--readonly";
+}
+
+function WorkerLaneTerminal({ lane }: { lane: WorkerLane }) {
+  const access = routeAccess(lane.route);
+  const active = lane.status === "running";
+  return (
+    <article className={`sq-lane sq-lane--${lane.status}`} style={{ borderColor: routeColor(lane.route) }}>
+      <header className="sq-lane__head">
+        <div className="sq-lane__route">
+          <span className="sq-route__dot" style={{ background: routeColor(lane.route) }} />
+          <span>{routeLabel(lane.route)}</span>
+        </div>
+        <span className={`sq-access ${accessClass(access)}`}>{access}</span>
+        {access === "write" && <span className="sq-lane__lock">⚿ write-lock</span>}
+        <span className={`sq-lane__status sq-lane__status--${lane.status}`}>{lane.status}</span>
+      </header>
+      <div className="sq-lane__model sq-mono">{routeModel(lane.route)}</div>
+      <div className="sq-lane__terminal sq-mono" aria-label={`${routeLabel(lane.route)} terminal`}>
+        {lane.lines.length > 0 ? (
+          lane.lines.map((line, i) => (
+            <div key={`${line.text}-${i}`} className={`sq-lane__line sq-lane__line--${line.kind} sq-stream`}>
+              {line.text}
+            </div>
+          ))
+        ) : (
+          <div className="sq-lane__line sq-lane__line--empty">waiting for output</div>
+        )}
+        {active && (
+          <span className="sq-lane__caret" style={{ color: routeColor(lane.route) }} aria-hidden>
+            ▊
+          </span>
+        )}
+      </div>
+    </article>
   );
 }
 

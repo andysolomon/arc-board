@@ -18,7 +18,7 @@ Design system: ../DESIGN_SYSTEM.md + app/src/tokens.css (used verbatim).
 ==================================================================
 STATUS: walking skeleton + full board views, taste-reviewed x2
 ==================================================================
-Tests: 49 green — daemon 32 (8 files), app 17 (8 files). Both build clean.
+Tests: 57 green — daemon 36 (11 files), app 21 (9 files). Both build clean.
 Persistence: daemon now uses a FILE db at ~/.arc-story-queue/store.db (override ARC_SQ_DATA/
   ARC_SQ_DB); board state survives restarts. GitHub import is inbound (gh issue list ->
   backlog stories, deduped by url); file-agent is outbound (draft -> gh issue create).
@@ -29,6 +29,8 @@ Run:
   eyeball (desktop): (t1) npm run daemon   (t2) cd app && bun run tauri:dev   (native window)
   build desktop app: cd app && bun run tauri:build   (produces .app/.dmg; slower release build)
   file drafts to GitHub: npm run file-agent [-- --dry-run]  (gh must be authed)
+  deterministic no-LLM worker: npm run worker [-- --project <projectId>]
+  Fable pull-loop helper: npm run fable:pull -- --path /path/to/repo --model <model>
 
 ==================================================================
 DONE
@@ -38,6 +40,13 @@ DAEMON (mcp-server, :7420, @modelcontextprotocol/sdk ^1.29 StreamableHTTP, node:
   queue.next (git worktree add + write-lock + in_progress)
   queue.list / queue.reorder (adjacent) / queue.setOrder (arbitrary drag) / story.unqueue
   story.get/update/plan/complete/detail
+  Deterministic worker (mcp-server/worker.ts, `npm run worker`): pulls a reserved or next queued
+    story, streams git/file operations over story.update, writes a no-LLM worktree commit,
+    completes to Review with handoff + RunRecord, and releases the write lock.
+  Fable pull-loop glue (mcp-server/fable-pull-loop.ts, `npm run fable:pull`): registers a
+    live Claude Code/Fable session, attaches cwd as a project, pulls queue.next, streams
+    story.update lines, and provides update/complete helpers while all model work remains
+    inside the live session. Skill doc: skills/fable-pull-loop/SKILL.md.
   story.file / story.requestFile / file.pending / story.enqueue (guardrail)
   intake.enqueue/next/complete/list/draft (deterministic no-model draft)
   runs.list · config.get/set (autoRun, maxParallel) · stories.list · github.import (gh->stories)
@@ -50,7 +59,9 @@ GUARDRAIL: a draft cannot enter Queued until filed (has issue, draft=false).
 
 APP (Vite + React, tokens.css verbatim)
   AppShell: titlebar (traffic lights · mark · project switcher · Fable status pill ·
-    refresh · Activity bell · +New Story) + left nav w/ counts.
+    refresh · Activity bell · +New Story) + left nav w/ counts. Fable pill is honest:
+    reserved In-Progress stories without recent story.update lines show "no worker attached";
+    active workers show the amber spinner.
   Views: Board (drag-and-drop: reorder queued, backlog<->queued w/ guardrail),
     Queue (intake tray + reorder + Pull next), Observability (runs metrics),
     Orchestrator (routes table + autoRun toggle + parallel stepper + .mcp.json).
@@ -61,6 +72,10 @@ APP (Vite + React, tokens.css verbatim)
     lifecycle events are the SINGLE source of activity notifications and refresh
     cross-client boards (proven: another session's enqueue notifies + updates this board).
   autoRun: when enabled + a slot free, board auto-pulls queue.next (capacity-guarded, dep-array'd).
+  In-Progress cards distinguish reserved/awaiting-worker from live streamed work; no terminal
+    caret appears until story.update lines arrive.
+  Story drawer now shows per-route worker lanes from story.update events, including route label,
+    model, access badge, write-lock marker, terminal output, active caret, and done status.
 
 DESKTOP SHELL (Tauri v2, app/src-tauri): wraps the SAME Vite build in a native WKWebView
   window (1440x900). Rust shell compiles clean (cargo 1.96). Daemon CORS allowlist includes

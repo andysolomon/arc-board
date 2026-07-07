@@ -35,4 +35,14 @@ pnpm --filter mcp-server dev     # start the MCP server on :7420
 pnpm --filter app tauri dev      # start the desktop board
 ```
 
+## Fable pull loop
+
+From a live Claude Code/Fable session, use the helper to register the session, attach the current repo, reserve the next queued story, and print the assignment prompt:
+
+```bash
+npm run fable:pull -- --path /absolute/path/to/repo --model "<current-model>"
+```
+
+Then stream progress with `npm run fable:update -- --id <story-id> --line "..."` and complete with `npm run fable:complete -- --id <story-id> --pr <url> --handoff handoff.json --runs runs.json`. See `skills/fable-pull-loop/SKILL.md`.
+
 Use `Story Queue.dc.html` from the handoff as the visual + interaction reference.
