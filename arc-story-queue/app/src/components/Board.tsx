@@ -106,7 +106,11 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
           </button>
         )}
       </header>
-      {actionError && <span className="connect-bar__error board-view__enqueue-error">{actionError}</span>}
+      {(actionError || (!state.project && state.error)) && (
+        <span className="connect-bar__error board-view__enqueue-error">
+          {actionError ?? state.error}
+        </span>
+      )}
       <div className="board-view__columns">
         {BOARD_COLUMNS.map((column) => {
           const draggable = DRAGGABLE.includes(column);

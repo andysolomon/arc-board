@@ -108,6 +108,39 @@ export interface SessionRegisterArgs {
   pid: number;
 }
 
+export interface BoardStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+interface PersistedProjectAttachment {
+  repo: string;
+  path: string;
+  branch: string;
+  model: string;
+}
+
+export const LAST_PROJECT_STORAGE_KEY = "arc-story-queue:last-project";
+
+function defaultStorage(): BoardStorage | null {
+  const globals = globalThis as typeof globalThis & { localStorage?: Partial<BoardStorage> };
+  try {
+    const storage = globals.localStorage;
+    if (
+      storage &&
+      typeof storage.getItem === "function" &&
+      typeof storage.setItem === "function" &&
+      typeof storage.removeItem === "function"
+    ) {
+      return storage as BoardStorage;
+    }
+  } catch {
+    // Storage access can throw in restricted browser contexts.
+  }
+  return null;
+}
+
 function parseToolResult<T>(result: unknown): T {
   const r = result as { content?: Array<{ type: string; text?: string }> };
   const text = r.content?.find((c) => c.type === "text")?.text;
@@ -257,8 +290,14 @@ export class BoardStore {
   private client: Client | null = null;
   private transport: StreamableHTTPClientTransport | null = null;
   private notifySeq = 0;
+  private readonly storage: BoardStorage | null;
 
-  constructor(private readonly mcpUrl: string) {}
+  constructor(
+    private readonly mcpUrl: string,
+    storage?: BoardStorage | null
+  ) {
+    this.storage = storage === undefined ? defaultStorage() : storage;
+  }
 
   getState(): BoardState {
     return this.state;
@@ -282,6 +321,52 @@ export class BoardStore {
   private reduce(mutator: (state: BoardState) => BoardState): void {
     this.state = mutator(this.state);
     this.emit();
+  }
+
+  private readLastAttachment(): PersistedProjectAttachment | null {
+    const raw = this.storage?.getItem(LAST_PROJECT_STORAGE_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Partial<PersistedProjectAttachment>;
+      if (
+        typeof parsed.repo === "string" &&
+        typeof parsed.path === "string" &&
+        typeof parsed.branch === "string" &&
+        typeof parsed.model === "string"
+      ) {
+        return parsed as PersistedProjectAttachment;
+      }
+    } catch {
+      // Malformed persisted state should not block the connect flow.
+    }
+    this.storage?.removeItem(LAST_PROJECT_STORAGE_KEY);
+    return null;
+  }
+
+  private persistAttachment(args: PersistedProjectAttachment): void {
+    this.storage?.setItem(LAST_PROJECT_STORAGE_KEY, JSON.stringify(args));
+  }
+
+  private clearLastAttachment(): void {
+    this.storage?.removeItem(LAST_PROJECT_STORAGE_KEY);
+  }
+
+  private async restoreLastAttachment(): Promise<void> {
+    if (this.state.project) return;
+    const saved = this.readLastAttachment();
+    if (!saved) return;
+
+    try {
+      await this.registerAndAttach({ ...saved, pid: 0 }, { persist: false });
+      this.persistAttachment(saved);
+      this.notify("success", `Restored ${saved.repo}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const error = `Unable to restore last project (${saved.repo}): ${msg}. Attach a project to continue.`;
+      this.clearLastAttachment();
+      this.patch({ project: null, error });
+      this.notify("error", error);
+    }
   }
 
   /**
@@ -328,6 +413,7 @@ export class BoardStore {
       });
       await this.client.connect(this.transport);
       this.patch({ status: "connected" });
+      await this.restoreLastAttachment();
     } catch (err) {
       this.patch({
         status: "error",
@@ -476,7 +562,10 @@ export class BoardStore {
     return story;
   }
 
-  async registerAndAttach(args: SessionRegisterArgs): Promise<Project> {
+  async registerAndAttach(
+    args: SessionRegisterArgs,
+    options: { persist?: boolean } = {}
+  ): Promise<Project> {
     const client = this.ensureClient();
     const reg = await client.callTool(
       { name: "session.register", arguments: { ...args } },
@@ -488,7 +577,15 @@ export class BoardStore {
       CallToolResultSchema
     );
     const project = parseToolResult<Project>(attach);
-    this.patch({ project });
+    if (options.persist !== false) {
+      this.persistAttachment({
+        repo: args.repo,
+        path: args.path,
+        branch: args.branch,
+        model: args.model,
+      });
+    }
+    this.patch({ project, error: undefined });
     await this.safeHydrate();
     return project;
   }
@@ -500,7 +597,13 @@ export class BoardStore {
       CallToolResultSchema
     );
     const project = parseToolResult<Project>(attach);
-    this.patch({ project });
+    this.persistAttachment({
+      repo: project.repo,
+      path: project.path,
+      branch: project.branch,
+      model: project.model,
+    });
+    this.patch({ project, error: undefined });
     await this.safeHydrate();
     return project;
   }
