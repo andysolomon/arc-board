@@ -9,6 +9,8 @@ import { CallToolResultSchema, LoggingMessageNotificationSchema } from "@modelco
 import type { Handoff, RunRecord, Story } from "arc-contracts";
 import { startDaemon, type DaemonHandle } from "../mcp-server/dist/server.js";
 
+const TEST_PORT = 7424;
+
 function parseToolResult<T>(result: { content: Array<{ type: string; text?: string }> }): T {
   const text = result.content.find((c) => c.type === "text")?.text;
   if (!text) throw new Error("No text content in tool result");
@@ -56,14 +58,14 @@ describe("walking skeleton E2E", () => {
     execFileSync("git", ["commit", "-m", "init"], { cwd: fixtureDir });
 
     daemon = await startDaemon({
-      port: 7420,
+      port: TEST_PORT,
       host: "127.0.0.1",
       dbPath: join(fixtureDir, "test.db"),
       worktreeRoot,
       maxParallel: 2,
     });
 
-    transport = new StreamableHTTPClientTransport(new URL("http://127.0.0.1:7420/mcp"));
+    transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${TEST_PORT}/mcp`));
     client = new Client({ name: "e2e-test", version: "0.1.0" });
     client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
       const raw = notification.params?.data;
@@ -79,8 +81,8 @@ describe("walking skeleton E2E", () => {
   }, 60_000);
 
   afterAll(async () => {
-    await client.close();
-    await daemon.close();
+    await client?.close();
+    await daemon?.close();
     if (fixtureDir && existsSync(fixtureDir)) {
       rmSync(fixtureDir, { recursive: true, force: true });
     }

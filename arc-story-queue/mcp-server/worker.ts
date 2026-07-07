@@ -4,7 +4,7 @@ import { basename, join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { Handoff, Project, RunRecord, Story } from "arc-contracts";
+import type { Access, Handoff, Project, RouteId, RunRecord, Story } from "arc-contracts";
 
 /**
  * Deterministic story worker.
@@ -71,14 +71,43 @@ async function callTool<T>(client: Client, name: string, args: Record<string, un
 async function streamLine(
   client: Client,
   story: Story,
+  route: RouteId,
   kind: "cmd" | "out" | "ok" | "lock" | "unlock",
-  text: string
+  text: string,
+  status: "running" | "done" = "running"
 ): Promise<void> {
   await callTool(client, "story.update", {
     id: story.id,
-    route: "composer-implement",
+    route,
     line: { kind, text },
+    lane: { route, status },
   });
+}
+
+function runRecord(args: {
+  story: Story;
+  route: RouteId;
+  label: string;
+  access: Access;
+  changed: number;
+  durMs: number;
+  outcome?: "accepted" | "escalated" | "rejected" | "unrated";
+}): RunRecord {
+  return {
+    id: `run-${args.story.id}-${args.route}-${Date.now()}`,
+    storyId: args.story.id,
+    label: args.label,
+    repo: args.story.repo,
+    route: args.route,
+    backend: "Deterministic Worker",
+    model: "no-model",
+    access: args.access,
+    tokens: 0,
+    durMs: args.durMs,
+    status: "completed",
+    changed: args.changed,
+    outcome: args.outcome ?? "unrated",
+  };
 }
 
 async function ensureProject(client: Client, opts: WorkerOptions): Promise<string> {
@@ -114,9 +143,14 @@ async function processStory(client: Client, story: Story, now: () => number): Pr
   const worktree = story.worktree;
   if (!worktree) throw new Error(`Story ${story.id} has no worktree; queue.next must reserve it first`);
 
-  await streamLine(client, story, "cmd", `git -C ${worktree} status --short`);
+  await streamLine(client, story, "codex-explore", "out", `reading contract for ${story.wid}`);
+  await streamLine(client, story, "composer-implement", "lock", `⚿ write-lock held for ${worktree}`);
+  await streamLine(client, story, "codex-check", "out", "standing by for changed files");
+
+  await streamLine(client, story, "composer-implement", "cmd", `git -C ${worktree} status --short`);
   const before = verificationStatus(worktree);
-  await streamLine(client, story, "out", before);
+  await streamLine(client, story, "composer-implement", "out", before);
+  await streamLine(client, story, "codex-explore", "ok", "repo shape and acceptance criteria mapped", "done");
 
   const notesDir = join(worktree, ".arc-story-queue", "runs");
   mkdirSync(notesDir, { recursive: true });
@@ -134,42 +168,35 @@ async function processStory(client: Client, story: Story, now: () => number): Pr
     "",
   ].join("\n");
   writeFileSync(notePath, note);
-  await streamLine(client, story, "out", `wrote ${relativeNotePath}`);
+  await streamLine(client, story, "composer-implement", "out", `wrote ${relativeNotePath}`);
 
-  await streamLine(client, story, "cmd", `git add ${relativeNotePath}`);
+  await streamLine(client, story, "composer-implement", "cmd", `git add ${relativeNotePath}`);
   runGit(worktree, ["add", relativeNotePath]);
 
   const diffNames = runGit(worktree, ["diff", "--cached", "--name-only"]);
   const changedFiles = diffNames.split("\n").filter(Boolean);
+  await streamLine(client, story, "codex-check", "cmd", "git diff --cached --name-only");
+  await streamLine(client, story, "codex-check", "out", changedFiles.join("\n") || "no staged files");
 
   if (changedFiles.length > 0) {
     const message = `${story.wid}: deterministic worker run`;
-    await streamLine(client, story, "cmd", `git commit -m ${JSON.stringify(message)}`);
+    await streamLine(client, story, "composer-implement", "cmd", `git commit -m ${JSON.stringify(message)}`);
     runGit(worktree, ["commit", "-m", message]);
-    await streamLine(client, story, "ok", `committed ${changedFiles.length} file(s)`);
+    await streamLine(client, story, "composer-implement", "ok", `committed ${changedFiles.length} file(s)`, "done");
   } else {
-    await streamLine(client, story, "ok", "no changes to commit");
+    await streamLine(client, story, "composer-implement", "ok", "no changes to commit", "done");
   }
 
   const after = verificationStatus(worktree);
-  await streamLine(client, story, "out", after);
+  await streamLine(client, story, "codex-check", "out", after);
+  await streamLine(client, story, "codex-check", "ok", "verification lane complete", "done");
 
   const durMs = Math.max(1, now() - startedAt);
-  const run: RunRecord = {
-    id: `run-${story.id}-${startedAt}`,
-    storyId: story.id,
-    label: "deterministic worker",
-    repo: story.repo,
-    route: "composer-implement",
-    backend: "Deterministic Worker",
-    model: "no-model",
-    access: "write",
-    tokens: 0,
-    durMs,
-    status: "completed",
-    changed: changedFiles.length,
-    outcome: "unrated",
-  };
+  const runs: RunRecord[] = [
+    runRecord({ story, route: "codex-explore", label: "deterministic explore", access: "read-only", changed: 0, durMs }),
+    runRecord({ story, route: "composer-implement", label: "deterministic write", access: "write", changed: changedFiles.length, durMs }),
+    runRecord({ story, route: "codex-check", label: "deterministic check", access: "read-only", changed: 0, durMs }),
+  ];
   const handoff: Handoff = {
     status: "completed",
     summary: `Deterministic worker completed ${story.wid} without invoking a model.`,
@@ -184,10 +211,9 @@ async function processStory(client: Client, story: Story, now: () => number): Pr
     id: story.id,
     handoff,
     pr,
-    runs: [run],
+    runs,
     outcome: "accepted",
   });
-  await streamLine(client, story, "ok", `completed ${story.wid} → review`);
   return { id: story.id, wid: story.wid, pr };
 }
 

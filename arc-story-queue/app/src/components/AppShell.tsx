@@ -32,9 +32,12 @@ interface AppShellProps {
 export function AppShell({ store }: AppShellProps) {
   const [view, setView] = useState<ViewId>("board");
   const [intakeOpen, setIntakeOpen] = useState(false);
+  const [, setLivenessTick] = useState(0);
   const state = store.getState();
   const connected = state.status === "connected";
   const runningCount = store.storiesByColumn("in_progress").length;
+  const liveWorkerCount = store.liveWorkerCount();
+  const reservedWorkerCount = store.reservedWorkerCount();
   const queueLen = store.queueStories().length;
   const detail = store.getDetail();
   const autoPulling = useRef(false);
@@ -45,6 +48,15 @@ export function AppShell({ store }: AppShellProps) {
   // rather than on every render.
   const { autoRun, maxParallel } = state.config;
   const attached = !!state.project;
+
+  // Re-evaluate recent-worker liveness even if no fresh SSE arrives, so stale streams
+  // naturally fall back to the reserved/no-worker state.
+  useEffect(() => {
+    if (!connected || runningCount === 0) return;
+    const id = window.setInterval(() => setLivenessTick((n) => n + 1), 5_000);
+    return () => window.clearInterval(id);
+  }, [connected, runningCount]);
+
   useEffect(() => {
     if (!autoRun || !connected || !attached) return;
     if (autoPulling.current) return;
@@ -76,11 +88,24 @@ export function AppShell({ store }: AppShellProps) {
         <ProjectSwitcher store={store} />
         <span
           className={`sq-pill ${
-            !connected ? "sq-pill--off" : runningCount > 0 ? "sq-pill--working" : "sq-pill--idle"
+            !connected
+              ? "sq-pill--off"
+              : liveWorkerCount > 0
+                ? "sq-pill--working"
+                : reservedWorkerCount > 0
+                  ? "sq-pill--reserved"
+                  : "sq-pill--idle"
           }`}
         >
           <span className="sq-pill__dot" />
-          {!connected ? "Offline" : runningCount > 0 ? `Fable · ${runningCount} running` : "Fable · idle"}
+          {!connected
+            ? "Offline"
+            : liveWorkerCount > 0
+              ? `Fable · ${liveWorkerCount} running`
+              : reservedWorkerCount > 0
+                ? "Fable · no worker attached"
+                : "Fable · idle"}
+          {connected && liveWorkerCount > 0 && <span className="sq-pill__spinner" aria-hidden />}
         </span>
         <div className="sq-titlebar__spacer" />
         <button

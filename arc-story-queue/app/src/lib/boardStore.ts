@@ -1,4 +1,5 @@
 import type {
+  Access,
   AppConfig,
   Column,
   IntakeItem,
@@ -29,9 +30,20 @@ export interface TerminalLine {
   route: string;
 }
 
+export type LaneStatus = "running" | "done";
+
+export interface WorkerLane {
+  route: string;
+  status: LaneStatus;
+  lines: TerminalLine[];
+  lastUpdateAt?: number;
+}
+
 export interface BoardStory extends Story {
   lines: TerminalLine[];
+  lanes: Record<string, WorkerLane>;
   activeRoute?: string;
+  lastWorkerUpdateAt?: number;
 }
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -66,8 +78,8 @@ export interface StoryUpdateEvent {
   type: "story.update";
   id: string;
   route: string;
-  line?: TerminalLine;
-  lane?: { route: string; status: "running" | "done" };
+  line?: Omit<TerminalLine, "route"> & { route?: string };
+  lane?: { route: string; status: LaneStatus };
 }
 
 export type LifecycleKind =
@@ -103,11 +115,26 @@ function parseToolResult<T>(result: unknown): T {
   return JSON.parse(text) as T;
 }
 
+function laneFromRoute(route: string): WorkerLane {
+  return { route, status: "running", lines: [] };
+}
+
+function lanesFromLines(lines: TerminalLine[]): Record<string, WorkerLane> {
+  return lines.reduce<Record<string, WorkerLane>>((acc, line) => {
+    const lane = acc[line.route] ?? laneFromRoute(line.route);
+    acc[line.route] = { ...lane, lines: [...lane.lines, line] };
+    return acc;
+  }, {});
+}
+
 function toBoardStory(story: Story, existing?: BoardStory): BoardStory {
+  const lines = existing?.lines ?? [];
   return {
     ...story,
-    lines: existing?.lines ?? [],
+    lines,
+    lanes: existing?.lanes ?? lanesFromLines(lines),
     activeRoute: existing?.activeRoute,
+    lastWorkerUpdateAt: existing?.lastWorkerUpdateAt,
   };
 }
 
@@ -159,15 +186,29 @@ export function applyStoryUpdate(state: BoardState, event: StoryUpdateEvent): Bo
     criteria: [],
     draft: false,
     lines: [],
+    lanes: {},
   };
 
-  const lines = event.line ? [...base.lines, { ...event.line, route: event.route }] : base.lines;
+  const route = event.lane?.route ?? event.line?.route ?? event.route;
+  const line = event.line ? { ...event.line, route } : undefined;
+  const now = Date.now();
+  const lines = line ? [...base.lines, line] : base.lines;
+  const existingLanes = base.lanes ?? lanesFromLines(base.lines);
+  const currentLane = existingLanes[route] ?? laneFromRoute(route);
+  const lane: WorkerLane = {
+    ...currentLane,
+    status: event.lane?.status ?? (line ? "running" : currentLane.status),
+    lines: line ? [...currentLane.lines, line] : currentLane.lines,
+    lastUpdateAt: line ? now : currentLane.lastUpdateAt,
+  };
   const stories = {
     ...state.stories,
     [event.id]: {
       ...base,
-      activeRoute: event.route,
+      activeRoute: route,
       lines,
+      lanes: { ...existingLanes, [route]: lane },
+      lastWorkerUpdateAt: line ? now : base.lastWorkerUpdateAt,
     },
   };
   const trackedIds = state.trackedIds.includes(event.id)
@@ -181,6 +222,31 @@ export function storiesForColumn(state: BoardState, column: Column, repo?: strin
   return Object.values(state.stories)
     .filter((s) => s.column === column && (!repo || s.repo === repo))
     .sort((a, b) => a.wid.localeCompare(b.wid));
+}
+
+export function hasLiveWorker(story: BoardStory, now = Date.now(), recencyMs = 30_000): boolean {
+  if (story.column !== "in_progress") return false;
+  return Object.values(story.lanes).some(
+    (lane) =>
+      lane.status === "running" &&
+      lane.lines.length > 0 &&
+      lane.lastUpdateAt !== undefined &&
+      now - lane.lastUpdateAt <= recencyMs
+  );
+}
+
+export function liveWorkerCount(state: BoardState, now = Date.now(), recencyMs = 30_000): number {
+  const repo = state.project?.repo;
+  return storiesForColumn(state, "in_progress", repo).filter((story) =>
+    hasLiveWorker(story, now, recencyMs)
+  ).length;
+}
+
+export function reservedWorkerCount(state: BoardState, now = Date.now(), recencyMs = 30_000): number {
+  const repo = state.project?.repo;
+  return storiesForColumn(state, "in_progress", repo).filter(
+    (story) => !hasLiveWorker(story, now, recencyMs)
+  ).length;
 }
 
 export type BoardListener = (state: BoardState) => void;
@@ -643,6 +709,14 @@ export class BoardStore {
     return this.state.config;
   }
 
+  liveWorkerCount(): number {
+    return liveWorkerCount(this.state);
+  }
+
+  reservedWorkerCount(): number {
+    return reservedWorkerCount(this.state);
+  }
+
   getDetail(): StoryDetail | null {
     return this.state.detail;
   }
@@ -653,28 +727,81 @@ export class BoardStore {
   }
 }
 
-export function routeColor(route: string): string {
-  const map: Record<string, string> = {
-    "codex-explore": "var(--sq-route-explore)",
-    "composer-implement": "var(--sq-route-composer)",
-    "codex-implement": "var(--sq-route-codex)",
-    "codex-check": "var(--sq-route-check)",
-    "opus-review": "var(--sq-route-review)",
-    fable: "var(--sq-route-fable)",
+const ROUTE_META: Record<RouteId, { label: string; color: string; model: string; access: Access }> = {
+  "codex-explore": {
+    label: "codex-explore",
+    color: "var(--sq-route-explore)",
+    model: "gpt-5.4-mini",
+    access: "read-only",
+  },
+  "composer-implement": {
+    label: "composer-implement",
+    color: "var(--sq-route-composer)",
+    model: "composer-2.5",
+    access: "write",
+  },
+  "codex-implement": {
+    label: "codex-implement",
+    color: "var(--sq-route-codex)",
+    model: "gpt-5.5",
+    access: "write",
+  },
+  "codex-check": {
+    label: "codex-check",
+    color: "var(--sq-route-check)",
+    model: "gpt-5.5",
+    access: "read-only",
+  },
+  "opus-review": {
+    label: "opus-review",
+    color: "var(--sq-route-review)",
+    model: "opus-4.8",
+    access: "read-only",
+  },
+  fable: {
+    label: "fable",
+    color: "var(--sq-route-fable)",
+    model: "orchestrator",
+    access: "parent",
+  },
+};
+
+const ROUTE_ORDER = Object.keys(ROUTE_META);
+
+function metaForRoute(route: RouteId | string) {
+  return ROUTE_META[route as RouteId] ?? {
+    label: route,
+    color: "var(--sq-accent)",
+    model: "unknown",
+    access: "read-only" as Access,
   };
-  return map[route] ?? "var(--sq-accent)";
+}
+
+export function workerLanes(story: BoardStory): WorkerLane[] {
+  return Object.values(story.lanes).sort((a, b) => {
+    const ai = ROUTE_ORDER.indexOf(a.route);
+    const bi = ROUTE_ORDER.indexOf(b.route);
+    if (ai === -1 && bi === -1) return a.route.localeCompare(b.route);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+}
+
+export function routeColor(route: string): string {
+  return metaForRoute(route).color;
 }
 
 export function routeLabel(route: RouteId | string): string {
-  const map: Record<string, string> = {
-    "codex-explore": "codex-explore",
-    "composer-implement": "composer-implement",
-    "codex-implement": "codex-implement",
-    "codex-check": "codex-check",
-    "opus-review": "opus-review",
-    fable: "fable",
-  };
-  return map[route] ?? route;
+  return metaForRoute(route).label;
+}
+
+export function routeModel(route: RouteId | string): string {
+  return metaForRoute(route).model;
+}
+
+export function routeAccess(route: RouteId | string): Access {
+  return metaForRoute(route).access;
 }
 
 export function priorityColor(priority: Story["priority"]): string {

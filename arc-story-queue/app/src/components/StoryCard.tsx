@@ -1,5 +1,5 @@
 import type { BoardStory } from "../lib/boardStore";
-import { priorityColor, routeColor, routeLabel } from "../lib/boardStore";
+import { hasLiveWorker, priorityColor, routeColor, routeLabel } from "../lib/boardStore";
 
 interface StoryCardProps {
   story: BoardStory;
@@ -23,6 +23,7 @@ export function StoryCard({
   dragging,
 }: StoryCardProps) {
   const running = story.column === "in_progress";
+  const liveWorkerStream = hasLiveWorker(story);
   const lastLine = story.lines.length > 0 ? story.lines[story.lines.length - 1] : null;
   const activeRoute = story.activeRoute ?? lastLine?.route ?? "composer-implement";
   const draggable = !!onDragStart;
@@ -85,32 +86,39 @@ export function StoryCard({
           <h3 className="story-card__title">{story.title}</h3>
 
           {running ? (
-            <>
-              <div className="story-card__route-row">
-                <span className="story-card__route" style={{ color: routeColor(activeRoute) }}>
+            liveWorkerStream ? (
+              <>
+                <div className="story-card__route-row">
+                  <span className="story-card__route" style={{ color: routeColor(activeRoute) }}>
+                    <span
+                      className="story-card__route-dot"
+                      style={{ background: routeColor(activeRoute) }}
+                    />
+                    {routeLabel(activeRoute)}
+                  </span>
+                </div>
+                {story.worktree && <div className="story-card__worktree">{story.worktree}</div>}
+                <div className="story-card__terminal">
+                  {story.lines.map((line, i) => (
+                    <div key={`${line.text}-${i}`} className="story-card__line sq-stream">
+                      {line.text}
+                    </div>
+                  ))}
                   <span
-                    className="story-card__route-dot"
-                    style={{ background: routeColor(activeRoute) }}
-                  />
-                  {routeLabel(activeRoute)}
-                </span>
-              </div>
-              {story.worktree && <div className="story-card__worktree">{story.worktree}</div>}
-              <div className="story-card__terminal">
-                {story.lines.map((line, i) => (
-                  <div key={`${line.text}-${i}`} className="story-card__line sq-stream">
-                    {line.text}
-                  </div>
-                ))}
-                <span
-                  className="story-card__caret"
-                  style={{ color: routeColor(activeRoute) }}
-                  aria-hidden
-                >
-                  ▊
-                </span>
-              </div>
-            </>
+                    className="story-card__caret"
+                    style={{ color: routeColor(activeRoute) }}
+                    aria-hidden
+                  >
+                    ▊
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="story-card__reserved">reserved · awaiting worker</div>
+                {story.worktree && <div className="story-card__worktree">{story.worktree}</div>}
+              </>
+            )
           ) : (
             <>
               <div className="story-card__meta">
