@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/andysolomon/arc-board/compare/v1.0.0...v1.0.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* persist project reattach state (W-000011) ([#22](https://github.com/andysolomon/arc-board/issues/22)) ([e58cebf](https://github.com/andysolomon/arc-board/commit/e58cebfb65b44d5a0c9d5f1fcdb9747e9eee60a5))
+
 # 1.0.0 (2026-07-07)
 
 
