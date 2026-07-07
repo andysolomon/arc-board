@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { NextFunction, Request, Response } from "express";
@@ -37,6 +38,19 @@ function jsonResult(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
 }
 
+function assertGitRepoPath(path: string): void {
+  try {
+    const inside = execFileSync("git", ["-C", path, "rev-parse", "--is-inside-work-tree"], {
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    if (inside === "true") return;
+  } catch {
+    // Normalize all git/path errors into an actionable MCP error.
+  }
+  throw new Error(`Repository path is unavailable or is not a git repo: ${path}`);
+}
+
 function createSharedContext(opts: DaemonOptions) {
   const store = new StoryStore(opts.dbPath ?? ":memory:", opts.maxParallel ?? 2);
   const registry = new SessionRegistry();
@@ -68,7 +82,10 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         pid: z.number(),
       },
     },
-    async (args) => jsonResult(registry.register(args))
+    async (args) => {
+      assertGitRepoPath(args.path);
+      return jsonResult(registry.register(args));
+    }
   );
 
   server.registerTool(
