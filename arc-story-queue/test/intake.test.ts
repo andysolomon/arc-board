@@ -4,7 +4,7 @@ import { QueueManager } from "../mcp-server/dist/queue.js";
 import { SessionRegistry } from "../mcp-server/dist/registry.js";
 import { SseHub } from "../mcp-server/dist/sse.js";
 import { StoryStore } from "../mcp-server/dist/store.js";
-import type { Story } from "arc-contracts";
+import type { IntakeDraftProposal, Story } from "arc-contracts";
 
 function makeStory(overrides: Partial<Story> = {}): Story {
   return {
@@ -173,5 +173,49 @@ describe("intake deterministic draft (fallback)", () => {
     const item = intake.enqueue({ kind: "feature", title: "X", description: "d" });
     intake.draft(item.id, "acme/api");
     expect(() => intake.draft(item.id, "acme/api")).toThrow(/already drafted/);
+  });
+
+  it("persists selected generated proposals as unfiled backlog drafts", async () => {
+    const { store, intake, queue } = makeManagers();
+    const proposals: IntakeDraftProposal[] = [
+      {
+        include: true,
+        type: "story",
+        title: "Add saved filters",
+        priority: "high",
+        size: "M",
+        summary: "Users can save filters for later.",
+        description: "As a user, I want saved filters so I can return to common views.",
+        epic: "Search",
+        taskClass: "feature",
+        tags: ["intake"],
+        criteria: ["Saved filters appear in the filter menu"],
+      },
+      {
+        include: false,
+        type: "story",
+        title: "Do not create me",
+        priority: "low",
+        size: "S",
+        summary: "Excluded proposal.",
+        description: "Excluded proposal.",
+        epic: "Product",
+        taskClass: "feature",
+        criteria: ["Excluded"],
+      },
+    ];
+
+    const stories = intake.createDrafts(proposals, "acme/web");
+    expect(stories).toHaveLength(1);
+    expect(stories[0]).toMatchObject({
+      title: "Add saved filters",
+      repo: "acme/web",
+      column: "backlog",
+      draft: true,
+      issue: null,
+      priority: "high",
+    });
+    expect(store.getStory(stories[0].id)?.draft).toBe(true);
+    await expect(queue.enqueueStory(stories[0].id)).rejects.toThrow(/Cannot queue a draft/);
   });
 });
