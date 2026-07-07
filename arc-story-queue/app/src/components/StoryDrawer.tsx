@@ -80,6 +80,14 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
           </>
         )}
 
+        {story.column === "review" && story.pr && story.prState !== "merged" && (
+          <ReviewActions store={store} story={story} />
+        )}
+
+        {story.column === "in_progress" && story.worktree && (
+          <AbandonActions store={store} story={story} />
+        )}
+
         {story.description && (
           <Section label="Contract">
             <p className="sq-drawer__desc">{story.description}</p>
@@ -229,6 +237,64 @@ function WorkerLaneTerminal({ lane }: { lane: WorkerLane }) {
         )}
       </div>
     </article>
+  );
+}
+
+function useStoryAction() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return { busy, error, run };
+}
+
+function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
+  const { busy, error, run } = useStoryAction();
+  return (
+    <Section label="Review decision">
+      <div className="sq-action-row">
+        <button
+          type="button"
+          className="btn btn--success sq-action-row__button"
+          disabled={busy}
+          onClick={() => void run(() => store.mergeStory(story.id))}
+        >
+          Merge PR &amp; clean worktree
+        </button>
+      </div>
+      {error && <div className="connect-bar__error">{error}</div>}
+    </Section>
+  );
+}
+
+function AbandonActions({ store, story }: { store: BoardStore; story: Story }) {
+  const { busy, error, run } = useStoryAction();
+  return (
+    <Section label="Worktree cleanup">
+      <p className="sq-drawer__desc">
+        Abandon this run to move the story back to Backlog and reclaim its worktree slot.
+      </p>
+      <button
+        type="button"
+        className="btn btn--secondary"
+        disabled={busy}
+        onClick={() => void run(() => store.abandonStory(story.id))}
+      >
+        Abandon &amp; clean worktree
+      </button>
+      {error && <div className="connect-bar__error">{error}</div>}
+    </Section>
   );
 }
 

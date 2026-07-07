@@ -151,6 +151,12 @@ body {
   color: var(--sq-text-1);
 }
 
+.btn--success {
+  background: var(--sq-done);
+  color: #0c0f18;
+  border-color: transparent;
+}
+
 .board-view__columns {
   flex: 1;
   min-height: 0;
@@ -774,6 +780,8 @@ body {
 .sq-drawer__section { margin-top: var(--sq-6); }
 .sq-drawer__desc { font-size: 13px; color: var(--sq-text-2); line-height: 1.55; margin: 0 0 var(--sq-3); }
 .sq-drawer__files { font-size: 11px; color: var(--sq-text-3); line-height: 1.7; margin-bottom: var(--sq-3); }
+.sq-action-row { display: flex; gap: var(--sq-2); }
+.sq-action-row__button { flex: 1; padding: 10px 12px; }
 .sq-list { margin: 0; padding-left: var(--sq-5); font-size: 12.5px; color: var(--sq-text-2); line-height: 1.6; }
 .sq-warn {
   font-size: 12px; color: var(--sq-running); padding: var(--sq-3) var(--sq-4); margin-top: var(--sq-4);

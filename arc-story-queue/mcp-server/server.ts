@@ -172,6 +172,34 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "story.merge",
+    {
+      title: "Merge story PR",
+      description: "Merge a reviewed story's PR, remove its worktree, release its lock, and move it to Done.",
+      inputSchema: { id: z.string() },
+    },
+    async ({ id }) => {
+      const s = await queue.merge(id);
+      void sse.emitEvent({ kind: "done", id: s.id, wid: s.wid, title: s.title, column: s.column });
+      return jsonResult(s);
+    }
+  );
+
+  server.registerTool(
+    "story.abandon",
+    {
+      title: "Abandon story worktree",
+      description: "Abandon an in-progress story, remove its worktree, release its lock, and move it back to Backlog.",
+      inputSchema: { id: z.string() },
+    },
+    async ({ id }) => {
+      const s = await queue.abandon(id);
+      void sse.emitEvent({ kind: "abandoned", id: s.id, wid: s.wid, title: s.title, column: s.column });
+      return jsonResult(s);
+    }
+  );
+
+  server.registerTool(
     "project.discover",
     {
       title: "Discover projects",

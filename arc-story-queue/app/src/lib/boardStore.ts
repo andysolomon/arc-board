@@ -86,6 +86,8 @@ export type LifecycleKind =
   | "queued"
   | "started"
   | "review"
+  | "done"
+  | "abandoned"
   | "unqueued"
   | "drafted"
   | "file-requested"
@@ -380,6 +382,8 @@ export class BoardStore {
       queued: { kind: "info", msg: `Queued ${label}` },
       started: { kind: "info", msg: `Started ${label}` },
       review: { kind: "success", msg: `Review ready: ${label}` },
+      done: { kind: "success", msg: `Merged ${label}` },
+      abandoned: { kind: "info", msg: `Abandoned ${label}` },
       unqueued: { kind: "info", msg: `Moved ${label} to backlog` },
       drafted: { kind: "success", msg: `Drafted ${label}` },
       "file-requested": { kind: "info", msg: `Filing requested: ${label}` },
@@ -693,6 +697,40 @@ export class BoardStore {
     );
     const story = parseToolResult<Story>(result);
     this.reduce((state) => upsertStoryInState(state, story));
+    await this.loadQueue();
+    return story;
+  }
+
+  private updateStoryAndDetail(story: Story): void {
+    this.reduce((state) => {
+      const next = upsertStoryInState(state, story);
+      return {
+        ...next,
+        detail: state.detail?.story.id === story.id ? { ...state.detail, story } : state.detail,
+      };
+    });
+  }
+
+  async mergeStory(id: string): Promise<Story> {
+    const client = this.ensureClient();
+    const result = await client.callTool(
+      { name: "story.merge", arguments: { id } },
+      CallToolResultSchema
+    );
+    const story = parseToolResult<Story>(result);
+    this.updateStoryAndDetail(story);
+    await Promise.all([this.loadQueue(), this.loadRuns()]);
+    return story;
+  }
+
+  async abandonStory(id: string): Promise<Story> {
+    const client = this.ensureClient();
+    const result = await client.callTool(
+      { name: "story.abandon", arguments: { id } },
+      CallToolResultSchema
+    );
+    const story = parseToolResult<Story>(result);
+    this.updateStoryAndDetail(story);
     await this.loadQueue();
     return story;
   }

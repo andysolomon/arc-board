@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { QueueManager } from "../mcp-server/dist/queue.js";
 import { SessionRegistry } from "../mcp-server/dist/registry.js";
 import { SseHub } from "../mcp-server/dist/sse.js";
@@ -27,16 +31,39 @@ function makeStory(overrides: Partial<Story> = {}): Story {
   };
 }
 
-function makeQueue(maxParallel = 2) {
+function makeQueue(maxParallel = 2, commandRunner?: ConstructorParameters<typeof QueueManager>[1]["commandRunner"]) {
   const store = new StoryStore(":memory:");
   const registry = new SessionRegistry();
   const sse = new SseHub();
   const queue = new QueueManager(
     { worktreeRoot: "/tmp/wt", maxParallel },
-    { store, registry, sse }
+    { store, registry, sse, commandRunner }
   );
   return { store, registry, queue };
 }
+
+const tmpDirs: string[] = [];
+
+function makeGitFixture() {
+  const fixtureDir = mkdtempSync(join(tmpdir(), "arc-queue-"));
+  tmpDirs.push(fixtureDir);
+  const repo = join(fixtureDir, "repo");
+  const worktree = join(fixtureDir, "wt", "story-1");
+  execFileSync("git", ["init", repo], { stdio: "pipe" });
+  execFileSync("git", ["-C", repo, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repo, "config", "user.name", "Test"], { stdio: "pipe" });
+  writeFileSync(join(repo, "README.md"), "# fixture\n");
+  execFileSync("git", ["-C", repo, "add", "."], { stdio: "pipe" });
+  execFileSync("git", ["-C", repo, "commit", "-m", "init"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repo, "worktree", "add", worktree, "-b", "feat/story-1"], {
+    stdio: "pipe",
+  });
+  return { repo, worktree };
+}
+
+afterEach(() => {
+  while (tmpDirs.length) rmSync(tmpDirs.pop()!, { recursive: true, force: true });
+});
 
 describe("QueueManager parallelism law", () => {
   it("read-only routes never lock", () => {
@@ -59,6 +86,59 @@ describe("QueueManager parallelism law", () => {
     expect(queue.acquireWrite("/wt/b", "s2")).toBe(true);
     expect(queue.isWriteLocked("/wt/a")).toBe(true);
     expect(queue.isWriteLocked("/wt/b")).toBe(true);
+  });
+
+  it("merge() deterministically merges the PR, removes the worktree, releases the lock, and marks done", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push(args);
+        return Buffer.from("");
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "review",
+      pr: "https://github.com/test/repo/pull/12",
+      prState: "open",
+      worktree,
+    });
+    store.upsertStory(story);
+    queue.acquireWrite(worktree, story.id);
+
+    const merged = await queue.merge(story.id);
+
+    expect(ghCalls).toEqual([["pr", "merge", "12", "--merge", "--delete-branch", "--repo", "test/repo"]]);
+    expect(merged.column).toBe("done");
+    expect(merged.prState).toBe("merged");
+    expect(merged.worktree).toBe("");
+    expect(existsSync(worktree)).toBe(false);
+    expect(queue.isWriteLocked(worktree)).toBe(false);
+  });
+
+  it("abandon() removes an in-progress worktree, releases the lock, and frees capacity", async () => {
+    const { store, registry, queue } = makeQueue(1);
+    const { repo, worktree } = makeGitFixture();
+    const session = registry.register({ repo: "test/repo", path: repo, branch: "main", model: "test", pid: 1 });
+    const project = registry.attach(session.id, "/tmp/wt");
+    const running = makeStory({ id: "s1", column: "in_progress", worktree, repo: "test/repo" });
+    const queued = makeStory({ id: "s2", column: "queued", branch: "feat/story-2", repo: "test/repo" });
+    store.upsertStory(running);
+    store.upsertStory(queued);
+    store.enqueue(queued.id);
+    queue.acquireWrite(worktree, running.id);
+
+    const abandoned = await queue.abandon(running.id);
+    expect(abandoned.column).toBe("backlog");
+    expect(abandoned.worktree).toBe("");
+    expect(existsSync(worktree)).toBe(false);
+    expect(queue.isWriteLocked(worktree)).toBe(false);
+
+    const next = await queue.next(project.id);
+    expect(next?.id).toBe(queued.id);
+    expect(next?.column).toBe("in_progress");
   });
 
   it("maxParallel gating makes next() return null when at capacity", async () => {
