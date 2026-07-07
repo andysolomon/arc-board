@@ -1,0 +1,27 @@
+{
+  "name": "arc-story-queue",
+  "version": "0.1.0",
+  "description": "Kanban board + MCP server that queues stories and feeds them to live Claude Code sessions, orchestrated by Fable (arc-orchestrator).",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "mcp-server",
+    "app"
+  ],
+  "scripts": {
+    "build": "npm run build -w arc-contracts && npm run build -w story-queue-mcp",
+    "daemon": "node --experimental-sqlite mcp-server/dist/index.js",
+    "file-agent": "npm run build && node mcp-server/dist/file-agent.js",
+    "worker": "npm run build && node mcp-server/dist/worker.js",
+    "import": "npm run build && node --experimental-sqlite mcp-server/dist/import-cli.js",
+    "test": "npm run build && node --experimental-sqlite ./node_modules/vitest/vitest.mjs run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "playwright": "^1.61.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "license": "MIT"
+}

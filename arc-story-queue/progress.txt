@@ -1,0 +1,109 @@
+arc-story-queue — progress
+Last updated: 2026-07-07
+
+==================================================================
+CORE INVARIANT
+==================================================================
+The daemon never runs a model. Fable runs every model. The app is a
+thin client. The daemon owns queue state, SQLite persistence, git
+worktree lifecycle, advisory write-locks, the session registry, SSE
+fan-out, and JSON-Schema validation — it touches git + fs but never an
+LLM. Fable (arc-orchestrator in a live Claude Code session) does all
+model work and PULLS work; the daemon never pushes. The app renders and
+turns gestures into MCP calls.
+
+Design record: ../BUILD_SPEC.md. Prototype (layout SoT): ../prototype/Story Queue.dc.html.
+Design system: ../DESIGN_SYSTEM.md + app/src/tokens.css (used verbatim).
+
+==================================================================
+STATUS: walking skeleton + full board views, taste-reviewed x2
+==================================================================
+Tests: 49 green — daemon 32 (8 files), app 17 (8 files). Both build clean.
+Persistence: daemon now uses a FILE db at ~/.arc-story-queue/store.db (override ARC_SQ_DATA/
+  ARC_SQ_DB); board state survives restarts. GitHub import is inbound (gh issue list ->
+  backlog stories, deduped by url); file-agent is outbound (draft -> gh issue create).
+Run:
+  daemon: npm run build && node --experimental-sqlite ./node_modules/vitest/vitest.mjs run
+  app:    cd app && bun run build && bun run test
+  eyeball (web): (t1) npm run daemon   (t2) cd app && bun run dev  -> http://localhost:5173
+  eyeball (desktop): (t1) npm run daemon   (t2) cd app && bun run tauri:dev   (native window)
+  build desktop app: cd app && bun run tauri:build   (produces .app/.dmg; slower release build)
+  file drafts to GitHub: npm run file-agent [-- --dry-run]  (gh must be authed)
+
+==================================================================
+DONE
+==================================================================
+DAEMON (mcp-server, :7420, @modelcontextprotocol/sdk ^1.29 StreamableHTTP, node:sqlite)
+  session.register · project.discover/attach
+  queue.next (git worktree add + write-lock + in_progress)
+  queue.list / queue.reorder (adjacent) / queue.setOrder (arbitrary drag) / story.unqueue
+  story.get/update/plan/complete/detail
+  story.file / story.requestFile / file.pending / story.enqueue (guardrail)
+  intake.enqueue/next/complete/list/draft (deterministic no-model draft)
+  runs.list · config.get/set (autoRun, maxParallel) · stories.list · github.import (gh->stories)
+  SSE: story.update (terminal lines) + story.event lifecycle
+       (queued/started/review/unqueued/drafted/file-requested/filed), resilient per-session send
+
+GUARDRAIL: a draft cannot enter Queued until filed (has issue, draft=false).
+  Enforced in queue.enqueueStory; tested at unit, MCP-transport, and UI
+  (Enqueue button + drag) levels.
+
+APP (Vite + React, tokens.css verbatim)
+  AppShell: titlebar (traffic lights · mark · project switcher · Fable status pill ·
+    refresh · Activity bell · +New Story) + left nav w/ counts.
+  Views: Board (drag-and-drop: reorder queued, backlog<->queued w/ guardrail),
+    Queue (intake tray + reorder + Pull next), Observability (runs metrics),
+    Orchestrator (routes table + autoRun toggle + parallel stepper + .mcp.json).
+  Overlays: Story drawer (story.detail: plan/criteria/scenarios/bug/slice/runs/handoff
+    + File-to-GitHub section), New-story modal, notifications popover — modal/drawer use
+    the shared useDialog hook (Escape + Tab focus-trap + focus restore).
+  Realtime: SSE terminal lines + lifecycle events drive toasts + Activity feed;
+    lifecycle events are the SINGLE source of activity notifications and refresh
+    cross-client boards (proven: another session's enqueue notifies + updates this board).
+  autoRun: when enabled + a slot free, board auto-pulls queue.next (capacity-guarded, dep-array'd).
+
+DESKTOP SHELL (Tauri v2, app/src-tauri): wraps the SAME Vite build in a native WKWebView
+  window (1440x900). Rust shell compiles clean (cargo 1.96). Daemon CORS allowlist includes
+  the Tauri webview origins. Native directory picker (tauri-plugin-dialog) — a "Browse…"
+  button in the project switcher, desktop-only (guarded by __TAURI_INTERNALS__). Scripts:
+  app tauri:dev / tauri:build.
+  CONNECTIVITY (root-caused via Playwright, FIXED):
+    1. CORS origin: the daemon allowlist was hardcoded to :5173, but Vite bumps to 5174/5175
+       when ports are taken -> app origin didn't match -> "Load failed". Fixed: isAllowedOrigin
+       now allows ANY loopback origin (http(s)://localhost|127.0.0.1|[::1]:*) + tauri origins.
+    2. CORS headers: MCP client sends mcp-protocol-version -> now echo Access-Control-Request-
+       Headers back in the preflight.
+    3. IPv6: daemon now binds BOTH 127.0.0.1 and ::1 (localhost resolves to ::1 first on macOS).
+    App URL is http://localhost:7420/mcp. Verified end-to-end in Chromium (Playwright): connect
+    + attach path/repo -> board scope andysolomon/arc-orchestrator, 4 backlog cards.
+    The BUILT `.app` (tauri://localhost, secure) still hits MIXED CONTENT fetching http daemon;
+    tauri:dev + web work. Shippable-.app fix (TODO): route MCP via tauri-plugin-http.
+
+REVIEWS: two opus-review passes applied (Fable-pill semantic color, sqPop keyframe split,
+  dialog a11y, keyboard-open cards, intake kind chip, drag dim, auto-run dep array, etc.).
+
+==================================================================
+GITHUB FILING FLOW (design — Fable half is model/CLI work, not daemon code)
+==================================================================
+Buildable seam (DONE): a draft carries fileRequested; story.requestFile flags it and
+emits a "file-requested" event; file.pending(projectId?) is the pull queue; story.file(id,issue)
+clears draft+flag, sets issue, emits "filed". Board drawer offers "Request Fable to file"
+and a manual "File now" (deterministic fallback for local / no-Fable).
+
+Fable half — BUILT as a standalone bridge (mcp-server/file-agent.ts, `npm run file-agent`):
+  connects as an MCP client → file.pending → gh issue create (deterministic body via
+  buildIssueBody, no model) → story.file(id, issue-url) → guardrail lifts. Issue-creator is
+  injectable (tested with a fake; runs real `gh` by default). A live Fable session can run
+  this same tool, or it runs standalone. `--dry-run` reports without creating issues.
+  Deterministic fallback stays the drawer's "File now" for offline/local use.
+  NOTE: a non-dry run creates REAL GitHub issues — run intentionally against the right repo.
+
+==================================================================
+DEFERRED / NEXT
+==================================================================
+- Run file-agent live against a real repo when ready (creates real issues) — needs a target repo slug.
+- Tauri: DONE (shell compiles). Optional polish: rename src-tauri crate "app"->arc-story-queue,
+  real app icons, code-signing/notarization for distribution.
+- Drag insertion-line marker; refresh-spin animation (LOW polish).
+- Worktree cleanup policy on complete/abandon (BUILD_SPEC §8 open).
+- Duplicate original ../arc-contracts is drift risk (new package is source of truth).

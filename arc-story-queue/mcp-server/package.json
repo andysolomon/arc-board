@@ -1,0 +1,25 @@
+{
+  "name": "story-queue-mcp",
+  "version": "0.1.0",
+  "description": "arc-story-queue MCP daemon",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "story-queue-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node --experimental-sqlite dist/index.js",
+    "worker": "node dist/worker.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ajv": "^8.17.1",
+    "arc-contracts": "*",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arc.dev/schema/story.json",
+  "title": "Story",
+  "type": "object",
+  "required": [
+    "id",
+    "wid",
+    "type",
+    "title",
+    "repo",
+    "branch",
+    "worktree",
+    "column",
+    "priority",
+    "size",
+    "draft"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "wid": {
+      "type": "string",
+      "pattern": "^W-\\\\d{6}$"
+    },
+    "type": {
+      "enum": [
+        "story",
+        "bug",
+        "slice"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "repo": {
+      "type": "string"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "worktree": {
+      "type": "string"
+    },
+    "column": {
+      "enum": [
+        "backlog",
+        "queued",
+        "in_progress",
+        "review",
+        "done"
+      ]
+    },
+    "priority": {
+      "enum": [
+        "high",
+        "med",
+        "low"
+      ]
+    },
+    "size": {
+      "enum": [
+        "S",
+        "M",
+        "L",
+        "XL"
+      ]
+    },
+    "epic": {
+      "type": "string"
+    },
+    "taskClass": {
+      "enum": [
+        "feature",
+        "bugfix",
+        "migration",
+        "refactor",
+        "perf",
+        "docs"
+      ]
+    },
+    "draft": {
+      "type": "boolean"
+    },
+    "issue": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

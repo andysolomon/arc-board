@@ -1,0 +1,58 @@
+:root {
+  /* accent */
+  --sq-accent: #7c9cff;
+  --sq-accent-soft: rgba(124,156,255,0.16);
+  --sq-on-accent: #0c0f18;
+
+  /* surfaces */
+  --sq-window: rgba(24,26,35,0.72);
+  --sq-panel: rgba(255,255,255,0.04);
+  --sq-panel-strong: rgba(255,255,255,0.06);
+  --sq-sunken: #0a0c11;
+  --sq-border: rgba(255,255,255,0.09);
+  --sq-border-soft: rgba(255,255,255,0.07);
+  --sq-border-strong: rgba(255,255,255,0.12);
+  --sq-blur: blur(44px) saturate(180%);
+  --sq-wall:
+    radial-gradient(1100px 780px at 14% 8%, #2a3a6b 0%, transparent 56%),
+    radial-gradient(980px 720px at 88% 16%, #402a63 0%, transparent 52%),
+    radial-gradient(920px 900px at 62% 108%, #14495a 0%, transparent 55%),
+    linear-gradient(158deg, #0f1119, #0a0b11);
+
+  /* text */
+  --sq-text-1: rgba(255,255,255,0.92);
+  --sq-text-2: rgba(255,255,255,0.60);
+  --sq-text-3: rgba(255,255,255,0.40);
+  --sq-text-4: rgba(255,255,255,0.28);
+
+  /* semantic status */
+  --sq-queued: #7c9cff;
+  --sq-running: #f5b544;
+  --sq-review: #c084fc;
+  --sq-done: #3ecf8e;
+  --sq-danger: #ff6b6b;
+  --sq-write: #ff8a5c;
+  --sq-readonly: #7c9cff;
+
+  /* routes */
+  --sq-route-explore: #7c9cff;
+  --sq-route-composer: #3ecf8e;
+  --sq-route-codex: #ff8a5c;
+  --sq-route-check: #c084fc;
+  --sq-route-review: #f5b544;
+  --sq-route-fable: #cfd8ff;
+
+  /* radii */
+  --sq-r-window: 16px;
+  --sq-r-card: 12px;
+  --sq-r-control: 9px;
+  --sq-r-badge: 6px;
+
+  /* type */
+  --sq-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --sq-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* spacing scale */
+  --sq-1: 4px; --sq-2: 6px; --sq-3: 9px; --sq-4: 12px;
+  --sq-5: 14px; --sq-6: 16px; --sq-7: 20px; --sq-8: 24px;
+}

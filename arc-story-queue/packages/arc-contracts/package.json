@@ -1,0 +1,12 @@
+{
+  "name": "arc-contracts",
+  "version": "0.1.0",
+  "description": "Shared contract between arc-orchestrator and arc-story-queue: routes, story, plan, handoff, run record.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "license": "MIT"
+}
