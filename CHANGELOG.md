@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/andysolomon/arc-board/compare/v1.0.1...v1.1.0) (2026-07-07)
+
+
+### Features
+
+* add reviewed PR merge cleanup ([#27](https://github.com/andysolomon/arc-board/issues/27)) ([32d410b](https://github.com/andysolomon/arc-board/commit/32d410b3fda4f5beec1a73f8969fe5748d95c82d))
+
 ## [1.0.1](https://github.com/andysolomon/arc-board/compare/v1.0.0...v1.0.1) (2026-07-07)
 
 
