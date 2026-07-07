@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import type { AppConfig, Handoff, Plan, Project, RunRecord, Story, StoryDetail } from "arc-contracts";
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
@@ -15,10 +15,17 @@ export interface QueueConfig {
   maxParallel: number;
 }
 
+export type CommandRunner = (
+  file: string,
+  args: readonly string[],
+  options?: ExecFileSyncOptions
+) => string | Buffer;
+
 export interface QueueDeps {
   store: StoryStore;
   registry: SessionRegistry;
   sse: SseHub;
+  commandRunner?: CommandRunner;
 }
 
 function slugify(value: string): string {
@@ -32,6 +39,11 @@ export class QueueManager {
     private cfg: QueueConfig,
     private deps: QueueDeps
   ) {}
+
+  private runCommand(file: string, args: readonly string[], options?: ExecFileSyncOptions): string | Buffer {
+    const runner = this.deps.commandRunner ?? execFileSync;
+    return runner(file, args, options);
+  }
 
   private get store() {
     return this.deps.store;
@@ -102,7 +114,7 @@ export class QueueManager {
     mkdirSync(this.cfg.worktreeRoot, { recursive: true });
 
     if (!existsSync(wtDir)) {
-      execFileSync("git", ["-C", repoPath, "worktree", "add", wtDir, "-b", story.branch], {
+      this.runCommand("git", ["-C", repoPath, "worktree", "add", wtDir, "-b", story.branch], {
         stdio: "pipe",
       });
     }
@@ -174,6 +186,77 @@ export class QueueManager {
 
     if (s.worktree) this.releaseWrite(s.worktree);
     return { ok: true };
+  }
+
+  private prSelector(pr: string): string {
+    const trimmed = pr.trim();
+    const hash = trimmed.match(/#(\d+)/);
+    if (hash) return hash[1];
+    const pullUrl = trimmed.match(/\/pull\/(\d+)(?:\b|$)/);
+    if (pullUrl) return pullUrl[1];
+    return trimmed;
+  }
+
+  private isLocalPr(pr: string): boolean {
+    return pr.startsWith("local://");
+  }
+
+  private mergePr(story: Story): void {
+    const pr = story.pr?.trim();
+    if (!pr) throw new Error(`Story ${story.id} has no PR to merge`);
+    if (story.prState === "merged" || this.isLocalPr(pr)) return;
+
+    const args = ["pr", "merge", this.prSelector(pr), "--merge", "--delete-branch"];
+    if (story.repo) args.push("--repo", story.repo);
+    this.runCommand("gh", args, { stdio: "pipe" });
+  }
+
+  private cleanupWorktree(story: Story): void {
+    const worktree = story.worktree?.trim();
+    if (!worktree) return;
+
+    try {
+      if (!existsSync(worktree)) return;
+      const rawCommonDir = this.runCommand(
+        "git",
+        ["-C", worktree, "rev-parse", "--git-common-dir"],
+        { encoding: "utf8", stdio: "pipe" }
+      ).toString().trim();
+      const commonDir = isAbsolute(rawCommonDir) ? rawCommonDir : resolve(worktree, rawCommonDir);
+      this.runCommand("git", ["--git-dir", commonDir, "worktree", "remove", "--force", worktree], {
+        stdio: "pipe",
+      });
+    } finally {
+      this.releaseWrite(worktree);
+    }
+  }
+
+  async merge(id: string): Promise<Story> {
+    const story = this.store.getStory(id);
+    if (!story) throw new Error(`Unknown story: ${id}`);
+    if (story.column !== "review") throw new Error("Only review stories can be merged");
+    if (!story.pr) throw new Error(`Story ${id} has no open PR`);
+
+    this.mergePr(story);
+    this.cleanupWorktree(story);
+    story.column = "done";
+    story.prState = "merged";
+    story.worktree = "";
+    this.store.upsertStory(story);
+    return story;
+  }
+
+  async abandon(id: string): Promise<Story> {
+    const story = this.store.getStory(id);
+    if (!story) throw new Error(`Unknown story: ${id}`);
+    if (story.column !== "in_progress") throw new Error("Only in-progress stories can be abandoned");
+
+    this.cleanupWorktree(story);
+    this.store.dequeue(id);
+    story.column = "backlog";
+    story.worktree = "";
+    this.store.upsertStory(story);
+    return story;
   }
 
   async discover(): Promise<Project[]> {

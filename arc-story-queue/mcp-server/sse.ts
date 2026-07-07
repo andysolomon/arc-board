@@ -11,6 +11,8 @@ export type LifecycleKind =
   | "queued"
   | "started"
   | "review"
+  | "done"
+  | "abandoned"
   | "unqueued"
   | "drafted"
   | "file-requested"
@@ -40,7 +42,7 @@ export class SseHub {
     await this.send({ type: "story.update", ...event });
   }
 
-  /** Fan-out a coarse lifecycle event (queued/started/review/unqueued/drafted). */
+  /** Fan-out a coarse lifecycle event (queued/started/review/done/abandoned/unqueued/drafted). */
   async emitEvent(event: StoryLifecycleEvent): Promise<void> {
     await this.send({ type: "story.event", ...event });
   }
