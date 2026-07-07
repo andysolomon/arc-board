@@ -49,7 +49,12 @@ describe("deterministic worker", () => {
   let fixtureDir: string;
   let worktreeRoot: string;
   const repoId = "test/worker";
-  const updates: Array<{ id: string; route: string; line?: { kind: string; text: string } }> = [];
+  const updates: Array<{
+    id: string;
+    route: string;
+    line?: { kind: string; text: string };
+    lane?: { route: string; status: string };
+  }> = [];
 
   beforeAll(async () => {
     fixtureDir = mkdtempSync(join(tmpdir(), "arc-sq-worker-"));
@@ -75,7 +80,13 @@ describe("deterministic worker", () => {
       const raw = notification.params?.data;
       if (typeof raw !== "string") return;
       try {
-        const parsed = JSON.parse(raw) as { type?: string; id: string; route: string; line?: { kind: string; text: string } };
+        const parsed = JSON.parse(raw) as {
+          type?: string;
+          id: string;
+          route: string;
+          line?: { kind: string; text: string };
+          lane?: { route: string; status: string };
+        };
         if (parsed.type === "story.update") updates.push(parsed);
       } catch {
         // ignore unrelated log data
@@ -133,10 +144,19 @@ describe("deterministic worker", () => {
     expect(result.stories[0]).toMatchObject({ id: story.id, wid: "W-000006" });
 
     await new Promise((r) => setTimeout(r, 300));
-    const storyLines = updates.filter((u) => u.id === story.id).map((u) => u.line?.text ?? "");
+    const storyUpdates = updates.filter((u) => u.id === story.id);
+    const storyLines = storyUpdates.map((u) => u.line?.text ?? "");
+    expect(storyUpdates.map((u) => u.route)).toEqual(
+      expect.arrayContaining(["codex-explore", "composer-implement", "codex-check"])
+    );
     expect(storyLines.some((line) => line.includes("git -C"))).toBe(true);
     expect(storyLines.some((line) => line.includes("wrote .arc-story-queue/runs/W-000006.md"))).toBe(true);
     expect(storyLines.some((line) => line.includes("committed 1 file(s)"))).toBe(true);
+    expect(
+      storyUpdates.some((u) => u.route === "composer-implement" && u.line?.text.includes("write-lock"))
+    ).toBe(true);
+    expect(storyUpdates.some((u) => u.route === "codex-explore" && u.lane?.status === "done")).toBe(true);
+    expect(storyUpdates.some((u) => u.route === "codex-check" && u.lane?.status === "done")).toBe(true);
 
     const reviewed = daemon.store.getStory(story.id);
     expect(reviewed?.column).toBe("review");
@@ -145,19 +165,19 @@ describe("deterministic worker", () => {
 
     const runs = daemon.store.getRunsForStory(story.id);
     expect(runs).toHaveLength(3);
-    expect(runs.map((run) => run.route)).toEqual([
-      "codex-explore",
-      "composer-implement",
-      "codex-check",
-    ]);
+    expect(runs.map((run) => run.route)).toEqual(
+      expect.arrayContaining(["codex-explore", "composer-implement", "codex-check"])
+    );
     expect(runs.find((run) => run.route === "composer-implement")).toMatchObject({
       backend: "Deterministic Worker",
       model: "no-model",
       tokens: 0,
       route: "composer-implement",
+      access: "write",
       status: "completed",
       changed: 1,
     });
+    expect(runs.filter((run) => run.access === "read-only")).toHaveLength(2);
 
     const lastCommit = execFileSync("git", ["log", "-1", "--pretty=%s"], {
       cwd: reserved.worktree,
