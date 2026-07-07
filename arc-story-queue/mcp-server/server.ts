@@ -436,6 +436,17 @@ function createMcpServerForSession(ctx: ReturnType<typeof createSharedContext>):
   return server;
 }
 
+// Allow any loopback dev origin (Vite picks 5173/5174/5175… when ports are taken) plus
+// the Tauri webview origins. Safe: the daemon binds loopback only, so these are all local.
+export function isAllowedOrigin(origin: string): boolean {
+  return (
+    /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin) ||
+    origin === "tauri://localhost" ||
+    origin === "http://tauri.localhost" ||
+    origin === "https://tauri.localhost"
+  );
+}
+
 export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandle> {
   const port = opts.port ?? 7420;
   const host = opts.host ?? "127.0.0.1";
@@ -444,14 +455,6 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   const sessionServers = new Map<string, McpServer>();
 
   const app = createMcpExpressApp({ host });
-
-  // Allow any loopback dev origin (Vite picks 5173/5174/5175… when ports are taken) plus
-  // the Tauri webview origins. Safe: the daemon binds loopback only, so these are all local.
-  const isAllowedOrigin = (origin: string): boolean =>
-    /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(origin) ||
-    origin === "tauri://localhost" ||
-    origin === "http://tauri.localhost" ||
-    origin === "https://tauri.localhost";
 
   app.use("/mcp", (req: Request, res: Response, next: NextFunction) => {
     const origin = req.headers.origin;
