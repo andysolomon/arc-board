@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/andysolomon/arc-board/compare/v1.3.0...v1.4.0) (2026-07-08)
+
+
+### Features
+
+* **w-000004:** align contracts with fallback routes ([#30](https://github.com/andysolomon/arc-board/issues/30)) ([07d3da3](https://github.com/andysolomon/arc-board/commit/07d3da3c8d758bb31d38b463289e3b91b1815fc2)), closes [#3](https://github.com/andysolomon/arc-board/issues/3)
+
 # [1.3.0](https://github.com/andysolomon/arc-board/compare/v1.2.0...v1.3.0) (2026-07-08)
 
 
