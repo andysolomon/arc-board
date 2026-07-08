@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/andysolomon/arc-board/compare/v1.13.2...v1.14.0) (2026-07-08)
+
+
+### Features
+
+* live-update story detail drawer ([#55](https://github.com/andysolomon/arc-board/issues/55)) ([aed78d4](https://github.com/andysolomon/arc-board/commit/aed78d4148d91fdbbc4e9110e72faa84bea562cf)), closes [#47](https://github.com/andysolomon/arc-board/issues/47)
+
 ## [1.13.2](https://github.com/andysolomon/arc-board/compare/v1.13.1...v1.13.2) (2026-07-08)
 
 
