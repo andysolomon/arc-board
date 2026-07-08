@@ -1,6 +1,19 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { BoardStory } from "../lib/boardStore";
-import { hasLiveWorker, priorityColor, routeColor, routeLabel } from "../lib/boardStore";
+import {
+  hasLiveWorker,
+  priorityColor,
+  routeAccess,
+  routeColor,
+  routeLabel,
+  workerLanes,
+} from "../lib/boardStore";
+import {
+  annotationLabel,
+  formatIssueBadge,
+  formatPrLabel,
+  formatTerminalLine,
+} from "../lib/storyCardFormat";
 
 interface StoryCardProps {
   story: BoardStory;
@@ -23,6 +36,15 @@ export function StoryCard({
   const liveWorkerStream = hasLiveWorker(story);
   const lastLine = story.lines.length > 0 ? story.lines[story.lines.length - 1] : null;
   const activeRoute = story.activeRoute ?? lastLine?.route ?? "composer-implement";
+  const lanes = workerLanes(story);
+  const readOnlyCount = lanes.filter((lane) => routeAccess(lane.route) === "read-only").length;
+  const issueBadge = formatIssueBadge(story.issue);
+  const prLabel = formatPrLabel(story.pr);
+  const prColor = story.prState === "merged" ? "#c084fc" : "#3ecf8e";
+  const annotation = story.annotation ? annotationLabel(story.annotation) : null;
+  const bugBadge =
+    story.type === "bug" ? `BUG${story.bug?.severity ? ` · ${story.bug.severity}` : ""}` : null;
+  const terminalLine = lastLine ? formatTerminalLine(lastLine) : "dispatching…";
   const draggable = !!onPointerDragStart;
 
   return (
@@ -63,10 +85,21 @@ export function StoryCard({
             {queueIndex !== undefined && (
               <span className="story-card__qbadge">#{queueIndex + 1}</span>
             )}
-            {story.issue && <span className="story-card__issue">{story.issue}</span>}
+            {issueBadge && <span className="story-card__issue">{issueBadge}</span>}
+            {prLabel && (
+              <span className="story-card__pr" style={{ color: prColor }}>
+                {prLabel}
+              </span>
+            )}
+            {annotation && (
+              <span
+                className={`story-card__annotation story-card__annotation--${story.annotation}`}
+              >
+                {annotation}
+              </span>
+            )}
+            {bugBadge && <span className="story-card__bug">{bugBadge}</span>}
             {story.draft && <span className="story-card__draft">DRAFT</span>}
-            <span className="story-card__size">{story.size}</span>
-            <span className="story-card__priority">{story.priority}</span>
           </div>
           <h3 className="story-card__title">{story.title}</h3>
 
@@ -81,14 +114,14 @@ export function StoryCard({
                     />
                     {routeLabel(activeRoute)}
                   </span>
+                  <span className="story-card__lock story-card__lock--write">⚿ write</span>
+                  <span className="story-card__lock story-card__lock--read">
+                    ⇉ {readOnlyCount} read-only
+                  </span>
                 </div>
-                {story.worktree && <div className="story-card__worktree">{story.worktree}</div>}
-                <div className="story-card__terminal">
-                  {story.lines.map((line, i) => (
-                    <div key={`${line.text}-${i}`} className="story-card__line sq-stream">
-                      {line.text}
-                    </div>
-                  ))}
+                {story.worktree && <div className="story-card__worktree">⌥ {story.worktree}</div>}
+                <div className="story-card__terminal" title={terminalLine}>
+                  {terminalLine}
                   <span
                     className="story-card__caret"
                     style={{ color: routeColor(activeRoute) }}
@@ -101,14 +134,14 @@ export function StoryCard({
             ) : (
               <>
                 <div className="story-card__reserved">reserved · awaiting worker</div>
-                {story.worktree && <div className="story-card__worktree">{story.worktree}</div>}
+                {story.worktree && <div className="story-card__worktree">⌥ {story.worktree}</div>}
               </>
             )
           ) : (
             <>
-              <div className="story-card__meta">
+              <div className="story-card__meta" title={`${story.wid} ⎇ ${story.branch}`}>
                 <span className="story-card__wid">{story.wid}</span>
-                <span className="story-card__branch">{story.branch}</span>
+                <span className="story-card__branch">⎇ {story.branch}</span>
               </div>
               {story.tags.length > 0 && (
                 <div className="story-card__tags">
