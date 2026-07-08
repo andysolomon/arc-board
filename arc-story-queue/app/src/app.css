@@ -161,6 +161,14 @@ body {
 .board-view__columns {
   flex: 1;
   min-height: 0;
+  /* WKWebView (Tauri desktop) keeps flex items at `min-width: auto`, which
+     refuses to shrink this scroll container below its content's min-content
+     width. The five 266px columns then grow it past the pane and the overflow
+     escapes to the `overflow: hidden` ancestors — a hard clip with no
+     scrollbar. Pinning min-width:0 forces the container to clamp to the pane so
+     its own `overflow-x: auto` scrolls the columns internally (matches Chromium
+     behaviour). See issue #65. */
+  min-width: 0;
   display: flex;
   gap: var(--sq-5);
   padding: var(--sq-4) var(--sq-7) var(--sq-7);

@@ -18,7 +18,15 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // WebKit runs alongside Chromium because the board's horizontal-scroll
+  // regressions are WKWebView-specific (the Tauri desktop shell uses Safari's
+  // engine). Playwright's WebKit shares Safari's flexbox `min-width: auto`
+  // behaviour, so it is the closest representative guard for the desktop clip
+  // that Chromium does not reproduce.
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+  ],
   webServer: {
     command: `npm run dev -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
