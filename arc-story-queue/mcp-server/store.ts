@@ -1,7 +1,15 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AppConfig, Handoff, IntakeItem, KnownProject, RunRecord, Story } from "arc-contracts";
+import {
+  normalizeStory,
+  type AppConfig,
+  type Handoff,
+  type IntakeItem,
+  type KnownProject,
+  type RunRecord,
+  type Story,
+} from "arc-contracts";
 
 export class StoryStore {
   private db: DatabaseSync;
@@ -106,19 +114,20 @@ export class StoryStore {
   }
 
   upsertStory(story: Story): void {
+    const normalized = normalizeStory(story);
     this.db
       .prepare("INSERT INTO stories (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data")
-      .run(story.id, JSON.stringify(story));
+      .run(normalized.id, JSON.stringify(normalized));
   }
 
   getStory(id: string): Story | null {
     const row = this.db.prepare("SELECT data FROM stories WHERE id = ?").get(id) as { data: string } | undefined;
-    return row ? (JSON.parse(row.data) as Story) : null;
+    return row ? normalizeStory(JSON.parse(row.data) as Partial<Story>) : null;
   }
 
   listStories(): Story[] {
     const rows = this.db.prepare("SELECT data FROM stories").all() as Array<{ data: string }>;
-    return rows.map((r) => JSON.parse(r.data) as Story);
+    return rows.map((r) => normalizeStory(JSON.parse(r.data) as Partial<Story>));
   }
 
   enqueue(storyId: string): void {

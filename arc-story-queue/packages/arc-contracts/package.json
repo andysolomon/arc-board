@@ -8,5 +8,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "ajv": "^8.20.0"
+  }
 }

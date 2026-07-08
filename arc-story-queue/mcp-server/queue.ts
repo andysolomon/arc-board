@@ -1,21 +1,23 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import type { AnnotateOutcome, AppConfig, Handoff, KnownProject, Plan, Project, RunRecord, Story, StoryDetail } from "arc-contracts";
+import {
+  routeNeedsWriteLock,
+  type AnnotateOutcome,
+  type AppConfig,
+  type Handoff,
+  type KnownProject,
+  type Plan,
+  type Project,
+  type RunRecord,
+  type Story,
+  type StoryDetail,
+} from "arc-contracts";
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
 import type { StoryStore } from "./store.js";
 import { validateHandoff, validatePlan, validateProject, validateRunRecord, validateStory } from "./validate.js";
 import { ghListIssues, importIssuesToStore, type IssueLister } from "./github-import.js";
-
-const READ_ONLY_ROUTES = new Set([
-  "codex-explore",
-  "composer-explore",
-  "opus-explore",
-  "codex-check",
-  "composer-check",
-  "opus-check",
-]);
 
 export interface QueueConfig {
   worktreeRoot: string;
@@ -91,7 +93,7 @@ export class QueueManager {
   }
 
   needsWriteLock(route: string): boolean {
-    return !READ_ONLY_ROUTES.has(route);
+    return routeNeedsWriteLock(route);
   }
 
   acquireWrite(worktree: string, storyId: string): boolean {
