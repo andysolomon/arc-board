@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/andysolomon/arc-board/compare/v1.14.0...v1.15.0) (2026-07-08)
+
+
+### Features
+
+* add Story lifecycle module ([#57](https://github.com/andysolomon/arc-board/issues/57)) ([69750f7](https://github.com/andysolomon/arc-board/commit/69750f72c44c5b1af9cc4f6287329d5432341ca5)), closes [#50](https://github.com/andysolomon/arc-board/issues/50)
+
 # [1.14.0](https://github.com/andysolomon/arc-board/compare/v1.13.2...v1.14.0) (2026-07-08)
 
 
