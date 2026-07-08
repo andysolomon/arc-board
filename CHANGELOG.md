@@ -1,3 +1,10 @@
+## [1.13.2](https://github.com/andysolomon/arc-board/compare/v1.13.1...v1.13.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* match board cards to prototype ([#49](https://github.com/andysolomon/arc-board/issues/49)) ([6b80876](https://github.com/andysolomon/arc-board/commit/6b80876d35ce17b34e4ea77162fa3f7a6c129bcb)), closes [#46](https://github.com/andysolomon/arc-board/issues/46)
+
 ## [1.13.1](https://github.com/andysolomon/arc-board/compare/v1.13.0...v1.13.1) (2026-07-08)
 
 
