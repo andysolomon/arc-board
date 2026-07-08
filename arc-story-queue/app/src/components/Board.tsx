@@ -16,7 +16,7 @@ interface BoardViewProps {
 }
 
 // Columns whose cards can be dragged, and the legal drop transitions.
-const DRAGGABLE: Column[] = ["backlog", "queued"];
+const DRAGGABLE: Column[] = ["backlog", "queued", "in_progress"];
 
 export function BoardView({ store, onOpen }: BoardViewProps) {
   const [actionError, setActionError] = useState<string | null>(null);
@@ -42,6 +42,7 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
     if (target === "queued" && dragCol === "queued") return true; // reorder
     if (target === "queued" && dragCol === "backlog") return true; // enqueue (guardrail)
     if (target === "backlog" && dragCol === "queued") return true; // unqueue
+    if (target === "review" && dragCol === "in_progress") return true; // send to review
     return false;
   }
 
@@ -104,6 +105,8 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
       }
     } else if (target.column === "backlog" && from === "queued") {
       await runTransition(() => store.unqueueStory(id));
+    } else if (target.column === "review" && from === "in_progress") {
+      await runTransition(() => store.reviewStory(id));
     }
   }
 
