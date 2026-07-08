@@ -81,7 +81,7 @@ export interface Story {
   fileRequested?: boolean;      // user asked Fable to file this draft to GitHub
   issue?: string | null;        // "#215" once filed through Fable
   pr?: string | null;
-  prState?: "open" | "merged";
+  prState?: "open" | "merged" | "closed";
   annotation?: AnnotateOutcome;
   plan?: Plan | null;
   bug?: BugDetail;

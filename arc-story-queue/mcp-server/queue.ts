@@ -28,6 +28,13 @@ export type CommandRunner = (
   options?: ExecFileSyncOptions
 ) => string | Buffer;
 
+export interface PrReconcileResult {
+  checked: number;
+  merged: string[];
+  closed: string[];
+  errors: Array<{ id: string; message: string }>;
+}
+
 export interface QueueDeps {
   store: StoryStore;
   registry: SessionRegistry;
@@ -363,6 +370,82 @@ export class QueueManager {
     return pr.startsWith("local://");
   }
 
+  private isGithubReviewPr(story: Story): boolean {
+    const pr = story.pr?.trim();
+    const isGithubRepo = !!story.repo && !story.repo.startsWith("local/");
+    return (
+      story.column === "review" &&
+      !!pr &&
+      isGithubRepo &&
+      story.prState !== "merged" &&
+      story.prState !== "closed" &&
+      !this.isLocalPr(pr)
+    );
+  }
+
+  private viewPr(story: Story): { state: string; mergedAt?: string | null } {
+    const pr = story.pr?.trim();
+    if (!pr) throw new Error(`Story ${story.id} has no PR to inspect`);
+
+    const args = ["pr", "view", this.prSelector(pr), "--json", "state,mergedAt", "--repo", story.repo];
+    const raw = this.runCommand("gh", args, { encoding: "utf8", stdio: "pipe" }).toString();
+    return JSON.parse(raw) as { state: string; mergedAt?: string | null };
+  }
+
+  private finishMergedStory(story: Story): Story {
+    this.cleanupWorktree(story);
+    story.column = "done";
+    story.prState = "merged";
+    story.worktree = "";
+    this.store.upsertStory(story);
+    return story;
+  }
+
+  private flagClosedPr(story: Story): Story {
+    story.prState = "closed";
+    story.annotation = "escalated";
+    this.store.upsertStory(story);
+    return story;
+  }
+
+  async reconcileReviewPrs(): Promise<PrReconcileResult> {
+    const result: PrReconcileResult = { checked: 0, merged: [], closed: [], errors: [] };
+    const reviewStories = this.store.listStories().filter((story) => this.isGithubReviewPr(story));
+
+    for (const story of reviewStories) {
+      result.checked += 1;
+      try {
+        const pr = this.viewPr(story);
+        const state = pr.state.toUpperCase();
+        if (state === "MERGED" || !!pr.mergedAt) {
+          const updated = this.finishMergedStory(story);
+          result.merged.push(updated.id);
+          await this.sse.emitEvent({
+            kind: "done",
+            id: updated.id,
+            wid: updated.wid,
+            title: updated.title,
+            column: updated.column,
+          });
+        } else if (state === "CLOSED") {
+          const updated = this.flagClosedPr(story);
+          result.closed.push(updated.id);
+          await this.sse.emitEvent({
+            kind: "escalated",
+            id: updated.id,
+            wid: updated.wid,
+            title: updated.title,
+            column: updated.column,
+          });
+        }
+      } catch (error) {
+        result.errors.push({ id: story.id, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    return result;
+  }
+
   private mergePr(story: Story): void {
     const pr = story.pr?.trim();
     if (!pr) throw new Error(`Story ${story.id} has no PR to merge`);
@@ -400,12 +483,7 @@ export class QueueManager {
     if (!story.pr) throw new Error(`Story ${id} has no open PR`);
 
     this.mergePr(story);
-    this.cleanupWorktree(story);
-    story.column = "done";
-    story.prState = "merged";
-    story.worktree = "";
-    this.store.upsertStory(story);
-    return story;
+    return this.finishMergedStory(story);
   }
 
   async abandon(id: string): Promise<Story> {

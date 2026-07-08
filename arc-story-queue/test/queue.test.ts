@@ -129,6 +129,80 @@ describe("QueueManager parallelism law", () => {
     expect(queue.isWriteLocked(worktree)).toBe(false);
   });
 
+  it("reconcileReviewPrs() marks externally merged GitHub PRs done without re-merging", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        return Buffer.from(JSON.stringify({ state: "MERGED", mergedAt: "2026-07-08T00:00:00Z" }));
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "review",
+      pr: "https://github.com/test/repo/pull/12",
+      prState: "open",
+      worktree,
+    });
+    store.upsertStory(story);
+
+    const result = await queue.reconcileReviewPrs();
+    const updated = store.getStory(story.id)!;
+
+    expect(result).toEqual({ checked: 1, merged: [story.id], closed: [], errors: [] });
+    expect(ghCalls).toEqual([["pr", "view", "12", "--json", "state,mergedAt", "--repo", "test/repo"]]);
+    expect(updated.column).toBe("done");
+    expect(updated.prState).toBe("merged");
+    expect(updated.worktree).toBe("");
+    expect(existsSync(worktree)).toBe(false);
+  });
+
+  it("reconcileReviewPrs() ignores local PR sentinels without calling gh", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        return Buffer.from("");
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const story = makeStory({ column: "review", pr: "local://arc-story-queue/W-000001", prState: "open" });
+    store.upsertStory(story);
+
+    const result = await queue.reconcileReviewPrs();
+
+    expect(result).toEqual({ checked: 0, merged: [], closed: [], errors: [] });
+    expect(ghCalls).toEqual([]);
+    expect(store.getStory(story.id)?.column).toBe("review");
+  });
+
+  it("reconcileReviewPrs() flags PRs closed without merging but leaves the card in Review", async () => {
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") return Buffer.from(JSON.stringify({ state: "CLOSED", mergedAt: null }));
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const story = makeStory({
+      column: "review",
+      pr: "https://github.com/test/repo/pull/12",
+      prState: "open",
+      worktree: "/tmp/arc-queue-closed-pr-worktree",
+    });
+    store.upsertStory(story);
+
+    const result = await queue.reconcileReviewPrs();
+    const updated = store.getStory(story.id)!;
+
+    expect(result).toEqual({ checked: 1, merged: [], closed: [story.id], errors: [] });
+    expect(updated.column).toBe("review");
+    expect(updated.prState).toBe("closed");
+    expect(updated.annotation).toBe("escalated");
+    expect(updated.worktree).toBe(story.worktree);
+  });
+
   it("abandon() removes an in-progress worktree, releases the lock, and frees capacity", async () => {
     const { store, registry, queue } = makeQueue(1);
     const { repo, worktree } = makeGitFixture();

@@ -88,6 +88,19 @@
         "string",
         "null"
       ]
+    },
+    "pr": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "prState": {
+      "enum": [
+        "open",
+        "merged",
+        "closed"
+      ]
     }
   }
 }
