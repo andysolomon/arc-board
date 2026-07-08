@@ -6,11 +6,30 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { Story } from "arc-contracts";
+import type { Handoff, RunRecord, Story } from "arc-contracts";
 import { BoardStore } from "../src/lib/boardStore";
 import { startDaemon, type DaemonHandle } from "../../mcp-server/dist/server.js";
 
 const TEST_PORT = 7421;
+
+function waitFor(assertion: () => void, timeoutMs = 2_000): Promise<void> {
+  const started = Date.now();
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      try {
+        assertion();
+        resolve();
+      } catch (err) {
+        if (Date.now() - started > timeoutMs) {
+          reject(err);
+          return;
+        }
+        setTimeout(tick, 25);
+      }
+    };
+    tick();
+  });
+}
 
 function makeStory(repo: string, id = "story-live-1"): Story {
   return {
@@ -19,7 +38,7 @@ function makeStory(repo: string, id = "story-live-1"): Story {
     type: "story",
     title: "Board live seam story",
     repo,
-    branch: "feat/board-live",
+    branch: `feat/${id}`,
     worktree: "",
     column: "queued",
     priority: "high",
@@ -142,5 +161,79 @@ describe("board live seam", () => {
     expect(boardStory).toBeDefined();
     expect(boardStory.column).toBe("in_progress");
     expect(boardStory.lines.map((l) => l.text)).toEqual(lines);
+  }, 60_000);
+
+  it("keeps an open drawer detail live across story updates and review handoff", async () => {
+    const repoId = "test/board-live";
+    const story = makeStory(repoId, "story-live-detail");
+    daemon.store.upsertStory(story);
+    daemon.store.enqueue(story.id);
+    store.trackStory(story.id);
+    await store.refreshStory(story.id);
+    await store.queueNext();
+    await store.openStory(story.id);
+
+    await toolClient.callTool(
+      {
+        name: "story.update",
+        arguments: {
+          id: story.id,
+          route: "composer-implement",
+          line: { kind: "out", text: "drawer stream line" },
+        },
+      },
+      CallToolResultSchema
+    );
+
+    await waitFor(() => {
+      expect(store.getDetail()?.story.column).toBe("in_progress");
+      expect(store.getState().stories[story.id].lines.map((l) => l.text)).toContain("drawer stream line");
+    });
+
+    const liveHandoff: Handoff = {
+      status: "completed",
+      summary: "drawer detail refreshed",
+      changes: ["StoryDrawer.tsx"],
+      verification: ["vitest board-live"],
+      risks: [],
+      next_actions: [],
+    };
+    const liveRun: RunRecord = {
+      id: "run-live-detail",
+      storyId: story.id,
+      label: "composer-implement",
+      repo: repoId,
+      route: "composer-implement",
+      backend: "Cursor Agent",
+      model: "composer-2.5",
+      access: "write",
+      tokens: 987,
+      durMs: 1200,
+      status: "completed",
+      changed: 1,
+      outcome: "accepted",
+    };
+
+    await toolClient.callTool(
+      {
+        name: "story.complete",
+        arguments: {
+          id: story.id,
+          handoff: liveHandoff,
+          pr: "https://github.com/acme/repo/pull/77",
+          runs: [liveRun],
+          outcome: "accepted",
+        },
+      },
+      CallToolResultSchema
+    );
+
+    await waitFor(() => {
+      const detail = store.getDetail();
+      expect(detail?.story.column).toBe("review");
+      expect(detail?.story.pr).toBe("https://github.com/acme/repo/pull/77");
+      expect(detail?.handoff).toEqual(liveHandoff);
+      expect(detail?.runs.map((run) => run.id)).toContain("run-live-detail");
+    });
   }, 60_000);
 });

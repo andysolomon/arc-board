@@ -534,14 +534,16 @@ export function createInitialBoardState(): BoardState {
 
 export function upsertStoryInState(state: BoardState, story: Story): BoardState {
   const existing = state.stories[story.id];
+  const boardStory = toBoardStory(story, existing);
   const stories = {
     ...state.stories,
-    [story.id]: toBoardStory(story, existing),
+    [story.id]: boardStory,
   };
   const trackedIds = state.trackedIds.includes(story.id)
     ? state.trackedIds
     : [...state.trackedIds, story.id];
-  return { ...state, stories, trackedIds };
+  const detail = state.detail?.story.id === story.id ? { ...state.detail, story: boardStory } : state.detail;
+  return { ...state, stories, trackedIds, detail };
 }
 
 export function applyStoryUpdate(state: BoardState, event: StoryUpdateEvent): BoardState {
@@ -579,21 +581,23 @@ export function applyStoryUpdate(state: BoardState, event: StoryUpdateEvent): Bo
     lines: line ? [...currentLane.lines, line] : currentLane.lines,
     lastUpdateAt: line ? now : currentLane.lastUpdateAt,
   };
+  const updatedStory: BoardStory = {
+    ...base,
+    activeRoute: route,
+    lines,
+    lanes: { ...existingLanes, [route]: lane },
+    lastWorkerUpdateAt: line ? now : base.lastWorkerUpdateAt,
+  };
   const stories = {
     ...state.stories,
-    [event.id]: {
-      ...base,
-      activeRoute: route,
-      lines,
-      lanes: { ...existingLanes, [route]: lane },
-      lastWorkerUpdateAt: line ? now : base.lastWorkerUpdateAt,
-    },
+    [event.id]: updatedStory,
   };
   const trackedIds = state.trackedIds.includes(event.id)
     ? state.trackedIds
     : [...state.trackedIds, event.id];
+  const detail = state.detail?.story.id === event.id ? { ...state.detail, story: updatedStory } : state.detail;
 
-  return { ...state, stories, trackedIds };
+  return { ...state, stories, trackedIds, detail };
 }
 
 function projectIdentity(project: Pick<Project, "repo" | "path">): string {
@@ -648,6 +652,7 @@ export class BoardStore {
   private client: Client | null = null;
   private transport: StreamableHTTPClientTransport | null = null;
   private notifySeq = 0;
+  private detailRefreshSeq = 0;
   private readonly storage: BoardStorage | null;
   private readonly modelComplete: ModelComplete | null;
   private readonly mcpFetch: FetchLike | null;
@@ -806,7 +811,18 @@ export class BoardStore {
     };
     const m = map[evt.kind];
     if (m) this.notify(m.kind, m.msg, lifecycleActivityMeta(evt));
-    if (this.state.project || this.state.projects.length > 0) void this.refreshViews().catch(() => undefined);
+    const openDetailId = this.state.detail?.story.id;
+    const refresh = this.state.project || this.state.projects.length > 0
+      ? this.refreshViews()
+      : Promise.resolve();
+    void refresh
+      .then(() => {
+        if (openDetailId === evt.id && this.state.detail?.story.id === evt.id) {
+          return this.refreshOpenDetail(evt.id);
+        }
+        return null;
+      })
+      .catch(() => undefined);
   }
 
   async connect(): Promise<void> {
@@ -1624,18 +1640,30 @@ export class BoardStore {
     return config;
   }
 
-  async openStory(id: string): Promise<StoryDetail> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
+  private async refreshOpenDetail(id = this.state.detail?.story.id): Promise<StoryDetail | null> {
+    if (!id || !this.client || this.state.status !== "connected") return null;
+    const seq = ++this.detailRefreshSeq;
+    const result = await this.client.callTool(
       { name: "story.detail", arguments: { id } },
       CallToolResultSchema
     );
     const detail = parseToolResult<StoryDetail>(result);
-    this.reduce((state) => ({ ...upsertStoryInState(state, detail.story), detail }));
+    this.reduce((state) => {
+      if (seq !== this.detailRefreshSeq) return state;
+      const next = upsertStoryInState(state, detail.story);
+      return { ...next, detail };
+    });
+    return this.state.detail?.story.id === id ? this.state.detail : null;
+  }
+
+  async openStory(id: string): Promise<StoryDetail> {
+    const detail = await this.refreshOpenDetail(id);
+    if (!detail) throw new Error(`Story detail not found: ${id}`);
     return detail;
   }
 
   closeStory(): void {
+    this.detailRefreshSeq += 1;
     this.patch({ detail: null });
   }
 
