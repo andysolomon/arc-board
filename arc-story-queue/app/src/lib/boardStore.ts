@@ -1,20 +1,26 @@
-import type {
-  Access,
-  AppConfig,
-  Column,
-  FsDirListing,
-  GherkinScenario,
-  IntakeDraftProposal,
-  IntakeDraftSource,
-  IntakeGenerateResult,
-  IntakeItem,
-  IntakeKind,
-  KnownProject,
-  Project,
-  RouteId,
-  RunRecord,
-  Story,
-  StoryDetail,
+import {
+  ROUTE_ORDER,
+  normalizeStory,
+  routeAccess as contractRouteAccess,
+  routeColor as contractRouteColor,
+  routeLabel as contractRouteLabel,
+  routeModel as contractRouteModel,
+  type Access,
+  type AppConfig,
+  type Column,
+  type FsDirListing,
+  type GherkinScenario,
+  type IntakeDraftProposal,
+  type IntakeDraftSource,
+  type IntakeGenerateResult,
+  type IntakeItem,
+  type IntakeKind,
+  type KnownProject,
+  type Project,
+  type RouteId,
+  type RunRecord,
+  type Story,
+  type StoryDetail,
 } from "arc-contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -1114,17 +1120,18 @@ export class BoardStore {
   }
 
   private async saveStory(story: Story): Promise<Story> {
+    const persistedStory = normalizeStory(story);
     if (this.client && this.state.status === "connected") {
       const result = await this.client.callTool(
-        { name: "story.save", arguments: { story } },
+        { name: "story.save", arguments: { story: persistedStory } },
         CallToolResultSchema
       );
       const saved = parseToolResult<Story>(result);
       this.updateStoryAndDetail(saved);
       return saved;
     }
-    this.updateStoryAndDetail(story);
-    return story;
+    this.updateStoryAndDetail(persistedStory);
+    return persistedStory;
   }
 
   private async createRefineChildren(proposals: IntakeDraftProposal[], repo: string): Promise<Story[]> {
@@ -1749,84 +1756,10 @@ export class BoardStore {
   }
 }
 
-const ROUTE_META: Record<RouteId, { label: string; color: string; model: string; access: Access }> = {
-  "codex-explore": {
-    label: "codex-explore",
-    color: "var(--sq-route-explore)",
-    model: "gpt-5.4-mini",
-    access: "read-only",
-  },
-  "composer-explore": {
-    label: "composer-explore",
-    color: "var(--sq-route-composer)",
-    model: "composer-2.5",
-    access: "read-only",
-  },
-  "opus-explore": {
-    label: "opus-explore",
-    color: "var(--sq-route-review)",
-    model: "opus-4.8",
-    access: "read-only",
-  },
-  "composer-implement": {
-    label: "composer-implement",
-    color: "var(--sq-route-composer)",
-    model: "composer-2.5",
-    access: "write",
-  },
-  "codex-implement": {
-    label: "codex-implement",
-    color: "var(--sq-route-codex)",
-    model: "gpt-5.5",
-    access: "write",
-  },
-  "opus-implement": {
-    label: "opus-implement",
-    color: "var(--sq-route-review)",
-    model: "opus-4.8",
-    access: "write",
-  },
-  "codex-check": {
-    label: "codex-check",
-    color: "var(--sq-route-check)",
-    model: "gpt-5.5",
-    access: "read-only",
-  },
-  "composer-check": {
-    label: "composer-check",
-    color: "var(--sq-route-composer)",
-    model: "composer-2.5",
-    access: "read-only",
-  },
-  "opus-check": {
-    label: "opus-check",
-    color: "var(--sq-route-review)",
-    model: "opus-4.8",
-    access: "read-only",
-  },
-  fable: {
-    label: "fable",
-    color: "var(--sq-route-fable)",
-    model: "orchestrator",
-    access: "parent",
-  },
-};
-
-const ROUTE_ORDER = Object.keys(ROUTE_META);
-
-function metaForRoute(route: RouteId | string) {
-  return ROUTE_META[route as RouteId] ?? {
-    label: route,
-    color: "var(--sq-accent)",
-    model: "unknown",
-    access: "read-only" as Access,
-  };
-}
-
 export function workerLanes(story: BoardStory): WorkerLane[] {
   return Object.values(story.lanes).sort((a, b) => {
-    const ai = ROUTE_ORDER.indexOf(a.route);
-    const bi = ROUTE_ORDER.indexOf(b.route);
+    const ai = ROUTE_ORDER.indexOf(a.route as RouteId);
+    const bi = ROUTE_ORDER.indexOf(b.route as RouteId);
     if (ai === -1 && bi === -1) return a.route.localeCompare(b.route);
     if (ai === -1) return 1;
     if (bi === -1) return -1;
@@ -1835,19 +1768,19 @@ export function workerLanes(story: BoardStory): WorkerLane[] {
 }
 
 export function routeColor(route: string): string {
-  return metaForRoute(route).color;
+  return contractRouteColor(route);
 }
 
 export function routeLabel(route: RouteId | string): string {
-  return metaForRoute(route).label;
+  return contractRouteLabel(route);
 }
 
 export function routeModel(route: RouteId | string): string {
-  return metaForRoute(route).model;
+  return contractRouteModel(route);
 }
 
 export function routeAccess(route: RouteId | string): Access {
-  return metaForRoute(route).access;
+  return contractRouteAccess(route);
 }
 
 export function priorityColor(priority: Story["priority"]): string {

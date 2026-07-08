@@ -14,93 +14,119 @@
     "column",
     "priority",
     "size",
+    "epic",
+    "taskClass",
+    "tags",
+    "description",
+    "criteria",
     "draft"
   ],
   "properties": {
-    "id": {
-      "type": "string"
+    "id": { "type": "string", "minLength": 1 },
+    "wid": { "type": "string", "pattern": "^W-\\d{6}$" },
+    "type": { "enum": ["story", "bug", "slice"] },
+    "title": { "type": "string", "minLength": 1 },
+    "repo": { "type": "string", "minLength": 1 },
+    "branch": { "type": "string" },
+    "worktree": { "type": "string" },
+    "column": { "enum": ["backlog", "queued", "in_progress", "review", "done"] },
+    "priority": { "enum": ["high", "med", "low"] },
+    "size": { "enum": ["S", "M", "L", "XL"] },
+    "epic": { "type": "string" },
+    "taskClass": { "enum": ["feature", "bugfix", "migration", "refactor", "perf", "docs"] },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "description": { "type": "string" },
+    "criteria": { "type": "array", "items": { "type": "string" } },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "steps"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": [
+                { "enum": ["Given", "When", "Then", "And"] },
+                { "type": "string", "minLength": 1 }
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
     },
-    "wid": {
-      "type": "string",
-      "pattern": "^W-\\d{6}$"
-    },
-    "type": {
-      "enum": [
-        "story",
-        "bug",
-        "slice"
+    "draft": { "type": "boolean" },
+    "fileRequested": { "type": "boolean" },
+    "issue": { "type": ["string", "null"] },
+    "pr": { "type": ["string", "null"] },
+    "prState": { "enum": ["open", "merged", "closed"] },
+    "annotation": { "enum": ["accepted", "rejected", "blocked", "verification-failed", "escalated"] },
+    "plan": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["tasks", "files", "testStrategy", "acMapping"],
+          "properties": {
+            "tasks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path", "change"],
+                "properties": {
+                  "path": { "type": "string", "minLength": 1 },
+                  "change": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
+            },
+            "testStrategy": { "type": "string", "minLength": 1 },
+            "acMapping": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["ac", "by"],
+                "properties": {
+                  "ac": { "type": "string", "minLength": 1 },
+                  "by": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        { "type": "null" }
       ]
     },
-    "title": {
-      "type": "string"
+    "bug": {
+      "type": "object",
+      "required": ["severity", "area", "steps", "rootCause", "fixOptions"],
+      "properties": {
+        "severity": { "enum": ["S1", "S2", "S3", "S4"] },
+        "area": { "type": "string", "minLength": 1 },
+        "steps": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "rootCause": { "type": "string", "minLength": 1 },
+        "fixOptions": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
     },
-    "repo": {
-      "type": "string"
-    },
-    "branch": {
-      "type": "string"
-    },
-    "worktree": {
-      "type": "string"
-    },
-    "column": {
-      "enum": [
-        "backlog",
-        "queued",
-        "in_progress",
-        "review",
-        "done"
-      ]
-    },
-    "priority": {
-      "enum": [
-        "high",
-        "med",
-        "low"
-      ]
-    },
-    "size": {
-      "enum": [
-        "S",
-        "M",
-        "L",
-        "XL"
-      ]
-    },
-    "epic": {
-      "type": "string"
-    },
-    "taskClass": {
-      "enum": [
-        "feature",
-        "bugfix",
-        "migration",
-        "refactor",
-        "perf",
-        "docs"
-      ]
-    },
-    "draft": {
-      "type": "boolean"
-    },
-    "issue": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "pr": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "prState": {
-      "enum": [
-        "open",
-        "merged",
-        "closed"
-      ]
+    "slice": {
+      "type": "object",
+      "required": ["afk", "blockedBy", "userStoriesCovered"],
+      "properties": {
+        "afk": { "type": "boolean" },
+        "blockedBy": { "type": ["string", "null"] },
+        "userStoriesCovered": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
     }
-  }
+  },
+  "additionalProperties": false
 }
