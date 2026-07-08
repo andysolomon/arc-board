@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/andysolomon/arc-board/compare/v1.13.0...v1.13.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* restore board horizontal scrollbar ([#48](https://github.com/andysolomon/arc-board/issues/48)) ([8313348](https://github.com/andysolomon/arc-board/commit/8313348866d1d7c592750402ae46c6e181657417)), closes [#45](https://github.com/andysolomon/arc-board/issues/45)
+
 # [1.13.0](https://github.com/andysolomon/arc-board/compare/v1.12.0...v1.13.0) (2026-07-08)
 
 
