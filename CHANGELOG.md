@@ -1,3 +1,10 @@
+## [1.16.3](https://github.com/andysolomon/arc-board/compare/v1.16.2...v1.16.3) (2026-07-08)
+
+
+### Bug Fixes
+
+* restore board horizontal scroll in Tauri desktop WKWebView ([#67](https://github.com/andysolomon/arc-board/issues/67)) ([505d95b](https://github.com/andysolomon/arc-board/commit/505d95b696074c9daac4828dab8d17b440784f2b)), closes [#65](https://github.com/andysolomon/arc-board/issues/65)
+
 ## [1.16.2](https://github.com/andysolomon/arc-board/compare/v1.16.1...v1.16.2) (2026-07-08)
 
 
