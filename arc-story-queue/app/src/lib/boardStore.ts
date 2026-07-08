@@ -1,11 +1,5 @@
 import {
-  ROUTE_ORDER,
   normalizeStory,
-  routeAccess as contractRouteAccess,
-  routeColor as contractRouteColor,
-  routeLabel as contractRouteLabel,
-  routeModel as contractRouteModel,
-  type Access,
   type AppConfig,
   type Column,
   type FsDirListing,
@@ -16,15 +10,10 @@ import {
   type IntakeKind,
   type KnownProject,
   type Project,
-  type RouteId,
   type RunRecord,
   type Story,
   type StoryDetail,
 } from "arc-contracts";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { CallToolResultSchema, LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   criteriaFromScenarios,
   generateDraftProposals as pipelineGenerateDraftProposals,
@@ -35,68 +24,85 @@ import {
   type ModelComplete,
   type ModelCompleteArgs,
 } from "./intakePipeline";
+import {
+  activeRepoFilter,
+  applyStoryUpdate,
+  createInitialBoardState,
+  liveWorkerCount as computeLiveWorkerCount,
+  projectIdentity,
+  reservedWorkerCount as computeReservedWorkerCount,
+  storiesForColumn,
+  upsertStoryInState,
+  type BoardListener,
+  type BoardState,
+  type BoardStory,
+  type ProjectScope,
+  type StoryLifecycleEvent,
+  type StoryUpdateEvent,
+} from "./boardState";
+import {
+  createNotification,
+  lifecycleActivityMeta,
+  lifecycleToast,
+  type ActivityItem,
+  type ActivityMeta,
+  type AppNotification,
+  type Toast,
+  type ToastKind,
+} from "./notifications";
+import {
+  clearAttachmentState,
+  defaultStorage,
+  persistAttachmentState,
+  readAttachmentState,
+  type BoardStorage,
+} from "./projectPersistence";
+import { BoardSync, parseToolResult } from "./boardSync";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 
+// Re-export the decomposed modules' public API so existing consumers and tests
+// keep importing everything from `boardStore` while the internals stay split.
+export {
+  applyStoryUpdate,
+  createInitialBoardState,
+  hasLiveWorker,
+  liveWorkerCount,
+  reservedWorkerCount,
+  storiesForColumn,
+  upsertStoryInState,
+  type BoardListener,
+  type BoardState,
+  type BoardStory,
+  type ConnectionStatus,
+  type LaneStatus,
+  type LifecycleKind,
+  type ProjectScope,
+  type StoryLifecycleEvent,
+  type StoryUpdateEvent,
+  type TerminalLine,
+  type WorkerLane,
+} from "./boardState";
+export {
+  type ActivityItem,
+  type ActivityMeta,
+  type AppNotification,
+  type Toast,
+  type ToastKind,
+} from "./notifications";
+export { LAST_PROJECT_STORAGE_KEY, type BoardStorage } from "./projectPersistence";
+export { resolveTauriHttpFetch } from "./boardSync";
+export {
+  BOARD_COLUMNS,
+  COLUMN_LABELS,
+  columnDotColor,
+  priorityColor,
+  routeAccess,
+  routeColor,
+  routeLabel,
+  routeModel,
+} from "./routes";
+export { workerLanes } from "./workerLanes";
 export type { ModelComplete, ModelCompleteArgs } from "./intakePipeline";
-
-export const BOARD_COLUMNS: Column[] = ["backlog", "queued", "in_progress", "review", "done"];
-
-export const COLUMN_LABELS: Record<Column, string> = {
-  backlog: "Backlog",
-  queued: "Queued",
-  in_progress: "In Progress",
-  review: "Review",
-  done: "Done",
-};
-
-export interface TerminalLine {
-  kind: "cmd" | "out" | "ok" | "lock" | "unlock";
-  text: string;
-  route: string;
-}
-
-export type LaneStatus = "running" | "done";
-
-export interface WorkerLane {
-  route: string;
-  status: LaneStatus;
-  lines: TerminalLine[];
-  lastUpdateAt?: number;
-}
-
-export interface BoardStory extends Story {
-  lines: TerminalLine[];
-  lanes: Record<string, WorkerLane>;
-  activeRoute?: string;
-  lastWorkerUpdateAt?: number;
-}
-
-export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
-
-export type ToastKind = "info" | "success" | "error";
-export interface Toast {
-  id: string;
-  kind: ToastKind;
-  message: string;
-}
-export interface ActivityMeta {
-  icon: string;
-  subject: string;
-  text: string;
-  tone: string;
-}
-
-export interface ActivityItem extends ActivityMeta {
-  id: string;
-  message: string;
-  ts: number;
-  read: boolean;
-}
-
-export interface AppNotification extends Toast {
-  ts: number;
-  read: boolean;
-  activity: ActivityMeta;
-}
 
 export type RefineAction = "split" | "tighten" | "dedupe";
 
@@ -114,113 +120,12 @@ export interface BoardStoreOptions {
   mcpFetch?: FetchLike | null;
 }
 
-export type ProjectScope = "all" | string | null;
-
-export interface BoardState {
-  status: ConnectionStatus;
-  project: Project | null;
-  projects: Project[];
-  activeProjectId: ProjectScope;
-  stories: Record<string, BoardStory>;
-  trackedIds: string[];
-  runs: RunRecord[];
-  queueOrder: string[];
-  config: AppConfig;
-  detail: StoryDetail | null;
-  intake: IntakeItem[];
-  toasts: Toast[];
-  notifications: AppNotification[];
-  error?: string;
-}
-
-export interface StoryUpdateEvent {
-  type: "story.update";
-  id: string;
-  route: string;
-  line?: Omit<TerminalLine, "route"> & { route?: string };
-  lane?: { route: string; status: LaneStatus };
-}
-
-export type LifecycleKind =
-  | "queued"
-  | "started"
-  | "review"
-  | "done"
-  | "abandoned"
-  | "unqueued"
-  | "drafted"
-  | "file-requested"
-  | "filed"
-  | "merged"
-  | "escalated";
-
-export interface StoryLifecycleEvent {
-  type: "story.event";
-  kind: LifecycleKind;
-  id: string;
-  wid?: string;
-  title?: string;
-  column?: string;
-}
-
 export interface SessionRegisterArgs {
   repo: string;
   path: string;
   branch: string;
   model: string;
   pid: number;
-}
-
-export interface BoardStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-  removeItem(key: string): void;
-}
-
-interface PersistedProjectAttachment {
-  repo: string;
-  path: string;
-  branch: string;
-  model: string;
-}
-
-interface PersistedProjectAttachmentState {
-  projects: PersistedProjectAttachment[];
-  active: "all" | { repo: string; path: string } | null;
-}
-
-export const LAST_PROJECT_STORAGE_KEY = "arc-story-queue:last-project";
-
-function defaultStorage(): BoardStorage | null {
-  const globals = globalThis as typeof globalThis & { localStorage?: Partial<BoardStorage> };
-  try {
-    const storage = globals.localStorage;
-    if (
-      storage &&
-      typeof storage.getItem === "function" &&
-      typeof storage.setItem === "function" &&
-      typeof storage.removeItem === "function"
-    ) {
-      return storage as BoardStorage;
-    }
-  } catch {
-    // Storage access can throw in restricted browser contexts.
-  }
-  return null;
-}
-
-function parseToolResult<T>(result: unknown): T {
-  const r = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
-  const text = r.content?.find((c) => c.type === "text")?.text;
-  if (r.isError) throw new Error(text ?? "MCP tool returned an error");
-  if (!text) throw new Error("No text content in tool result");
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    // Non-JSON payload (e.g. a raw daemon error) — surface the text itself
-    // instead of a misleading "JSON Parse error".
-    throw new Error(text);
-  }
 }
 
 function defaultModelComplete(): ModelComplete | null {
@@ -230,217 +135,23 @@ function defaultModelComplete(): ModelComplete | null {
   return typeof globals.claude?.complete === "function" ? globals.claude.complete : null;
 }
 
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-export async function resolveTauriHttpFetch(): Promise<FetchLike | null> {
-  if (!isTauriRuntime()) return null;
-  const mod = (await import("@tauri-apps/plugin-http")) as unknown as { fetch?: FetchLike };
-  if (typeof mod.fetch !== "function") throw new Error("tauri-plugin-http fetch is unavailable");
-  return mod.fetch;
-}
-
-function laneFromRoute(route: string): WorkerLane {
-  return { route, status: "running", lines: [] };
-}
-
-function defaultActivityMeta(kind: ToastKind, message: string): ActivityMeta {
-  const icon: Record<ToastKind, string> = {
-    info: "•",
-    success: "✓",
-    error: "!",
-  };
-  return { icon: icon[kind], subject: message, text: "", tone: kind };
-}
-
-function lifecycleActivityLabel(evt: StoryLifecycleEvent): string {
-  const title = evt.title ?? evt.id;
-  return evt.wid ? `${evt.wid} — “${title}”` : `“${title}”`;
-}
-
-function lifecycleActivityMeta(evt: StoryLifecycleEvent): ActivityMeta {
-  const label = lifecycleActivityLabel(evt);
-  const map: Record<LifecycleKind, ActivityMeta> = {
-    queued: { icon: "➕", subject: "Queue", text: `queued ${label}`, tone: "queued" },
-    started: { icon: "◈", subject: "Fable", text: `started ${label}`, tone: "started" },
-    review: { icon: "◇", subject: "Fable", text: `moved ${label} to review`, tone: "review" },
-    done: { icon: "✓", subject: "Fable", text: `completed ${label}`, tone: "done" },
-    abandoned: { icon: "↯", subject: "Fable", text: `abandoned ${label}`, tone: "abandoned" },
-    unqueued: { icon: "↩", subject: "Queue", text: `moved ${label} back to backlog`, tone: "unqueued" },
-    drafted: { icon: "✎", subject: "Fable", text: `drafted ${label}`, tone: "drafted" },
-    "file-requested": { icon: "⇢", subject: "You", text: `asked Fable to file ${label}`, tone: "file-requested" },
-    filed: { icon: "⊕", subject: "Fable", text: `filed ${label}`, tone: "filed" },
-    merged: { icon: "✓", subject: "You", text: `merged ${label}`, tone: "merged" },
-    escalated: { icon: "↥", subject: "Fable", text: `escalated ${label}`, tone: "escalated" },
-  };
-  return map[evt.kind];
-}
-
-function lanesFromLines(lines: TerminalLine[]): Record<string, WorkerLane> {
-  return lines.reduce<Record<string, WorkerLane>>((acc, line) => {
-    const lane = acc[line.route] ?? laneFromRoute(line.route);
-    acc[line.route] = { ...lane, lines: [...lane.lines, line] };
-    return acc;
-  }, {});
-}
-
-function toBoardStory(story: Story, existing?: BoardStory): BoardStory {
-  const lines = existing?.lines ?? [];
-  return {
-    ...story,
-    lines,
-    lanes: existing?.lanes ?? lanesFromLines(lines),
-    activeRoute: existing?.activeRoute,
-    lastWorkerUpdateAt: existing?.lastWorkerUpdateAt,
-  };
-}
-
-export function createInitialBoardState(): BoardState {
-  return {
-    status: "disconnected",
-    project: null,
-    projects: [],
-    activeProjectId: null,
-    stories: {},
-    trackedIds: [],
-    runs: [],
-    queueOrder: [],
-    config: { autoRun: false, maxParallel: 2 },
-    detail: null,
-    intake: [],
-    toasts: [],
-    notifications: [],
-  };
-}
-
-export function upsertStoryInState(state: BoardState, story: Story): BoardState {
-  const existing = state.stories[story.id];
-  const boardStory = toBoardStory(story, existing);
-  const stories = {
-    ...state.stories,
-    [story.id]: boardStory,
-  };
-  const trackedIds = state.trackedIds.includes(story.id)
-    ? state.trackedIds
-    : [...state.trackedIds, story.id];
-  const detail = state.detail?.story.id === story.id ? { ...state.detail, story: boardStory } : state.detail;
-  return { ...state, stories, trackedIds, detail };
-}
-
-export function applyStoryUpdate(state: BoardState, event: StoryUpdateEvent): BoardState {
-  const existing = state.stories[event.id];
-  const base: BoardStory = existing ?? {
-    id: event.id,
-    wid: "W-000000",
-    type: "story",
-    title: event.id,
-    repo: state.project?.repo ?? "",
-    branch: "",
-    worktree: "",
-    column: "in_progress",
-    priority: "med",
-    size: "S",
-    epic: "",
-    taskClass: "feature",
-    tags: [],
-    description: "",
-    criteria: [],
-    draft: false,
-    lines: [],
-    lanes: {},
-  };
-
-  const route = event.lane?.route ?? event.line?.route ?? event.route;
-  const line = event.line ? { ...event.line, route } : undefined;
-  const now = Date.now();
-  const lines = line ? [...base.lines, line] : base.lines;
-  const existingLanes = base.lanes ?? lanesFromLines(base.lines);
-  const currentLane = existingLanes[route] ?? laneFromRoute(route);
-  const lane: WorkerLane = {
-    ...currentLane,
-    status: event.lane?.status ?? (line ? "running" : currentLane.status),
-    lines: line ? [...currentLane.lines, line] : currentLane.lines,
-    lastUpdateAt: line ? now : currentLane.lastUpdateAt,
-  };
-  const updatedStory: BoardStory = {
-    ...base,
-    activeRoute: route,
-    lines,
-    lanes: { ...existingLanes, [route]: lane },
-    lastWorkerUpdateAt: line ? now : base.lastWorkerUpdateAt,
-  };
-  const stories = {
-    ...state.stories,
-    [event.id]: updatedStory,
-  };
-  const trackedIds = state.trackedIds.includes(event.id)
-    ? state.trackedIds
-    : [...state.trackedIds, event.id];
-  const detail = state.detail?.story.id === event.id ? { ...state.detail, story: updatedStory } : state.detail;
-
-  return { ...state, stories, trackedIds, detail };
-}
-
-function projectIdentity(project: Pick<Project, "repo" | "path">): string {
-  return `${project.repo}\u0000${project.path}`;
-}
-
-function activeRepoFilter(state: BoardState, repo?: string): ((story: { repo: string }) => boolean) {
-  if (repo) return (story) => story.repo === repo;
-  if (state.activeProjectId === "all") {
-    const repos = new Set(state.projects.map((project) => project.repo));
-    return (story) => repos.has(story.repo);
-  }
-  if (state.project) return (story) => story.repo === state.project!.repo;
-  return () => state.projects.length === 0 && state.activeProjectId === null;
-}
-
-export function storiesForColumn(state: BoardState, column: Column, repo?: string): BoardStory[] {
-  const matchesRepo = activeRepoFilter(state, repo);
-  return Object.values(state.stories)
-    .filter((s) => s.column === column && matchesRepo(s))
-    .sort((a, b) => a.wid.localeCompare(b.wid));
-}
-
-export function hasLiveWorker(story: BoardStory, now = Date.now(), recencyMs = 30_000): boolean {
-  if (story.column !== "in_progress") return false;
-  return Object.values(story.lanes).some(
-    (lane) =>
-      lane.status === "running" &&
-      lane.lines.length > 0 &&
-      lane.lastUpdateAt !== undefined &&
-      now - lane.lastUpdateAt <= recencyMs
-  );
-}
-
-export function liveWorkerCount(state: BoardState, now = Date.now(), recencyMs = 30_000): number {
-  return storiesForColumn(state, "in_progress").filter((story) =>
-    hasLiveWorker(story, now, recencyMs)
-  ).length;
-}
-
-export function reservedWorkerCount(state: BoardState, now = Date.now(), recencyMs = 30_000): number {
-  return storiesForColumn(state, "in_progress").filter(
-    (story) => !hasLiveWorker(story, now, recencyMs)
-  ).length;
-}
-
-export type BoardListener = (state: BoardState) => void;
-
+/**
+ * Facade over the decomposed board modules. Holds the mutable board state and
+ * exposes the stable method surface React components depend on, delegating
+ * transport to {@link BoardSync}, persistence to `projectPersistence`, and
+ * pure state transitions to `boardState` reducers.
+ */
 export class BoardStore {
   private state: BoardState = createInitialBoardState();
   private listeners = new Set<BoardListener>();
-  private client: Client | null = null;
-  private transport: StreamableHTTPClientTransport | null = null;
+  private readonly sync: BoardSync;
   private notifySeq = 0;
   private detailRefreshSeq = 0;
   private readonly storage: BoardStorage | null;
   private readonly modelComplete: ModelComplete | null;
-  private readonly mcpFetch: FetchLike | null;
 
   constructor(
-    private readonly mcpUrl: string,
+    mcpUrl: string,
     storageOrOptions?: BoardStorage | null | BoardStoreOptions
   ) {
     const looksLikeOptions =
@@ -452,7 +163,11 @@ export class BoardStore {
       ? options.storage === undefined ? defaultStorage() : options.storage
       : storageOrOptions === undefined ? defaultStorage() : (storageOrOptions as BoardStorage | null);
     this.modelComplete = options?.modelComplete === undefined ? defaultModelComplete() : options.modelComplete;
-    this.mcpFetch = options?.mcpFetch === undefined ? null : options.mcpFetch;
+    const mcpFetch = options?.mcpFetch === undefined ? null : options.mcpFetch;
+    this.sync = new BoardSync(mcpUrl, mcpFetch, {
+      onStoryUpdate: (event) => this.reduce((state) => applyStoryUpdate(state, event)),
+      onLifecycle: (event) => this.handleLifecycleEvent(event),
+    });
   }
 
   getState(): BoardState {
@@ -479,62 +194,13 @@ export class BoardStore {
     this.emit();
   }
 
-  private isPersistedAttachment(value: Partial<PersistedProjectAttachment>): value is PersistedProjectAttachment {
-    return (
-      typeof value.repo === "string" &&
-      typeof value.path === "string" &&
-      typeof value.branch === "string" &&
-      typeof value.model === "string"
-    );
-  }
-
-  private readLastAttachmentState(): PersistedProjectAttachmentState | null {
-    const raw = this.storage?.getItem(LAST_PROJECT_STORAGE_KEY);
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as Partial<PersistedProjectAttachmentState> & Partial<PersistedProjectAttachment>;
-      if (Array.isArray(parsed.projects)) {
-        const projects = parsed.projects.filter((p): p is PersistedProjectAttachment => this.isPersistedAttachment(p));
-        if (projects.length > 0) {
-          const active = parsed.active === "all" || parsed.active === null
-            ? parsed.active
-            : parsed.active && typeof parsed.active.repo === "string" && typeof parsed.active.path === "string"
-              ? { repo: parsed.active.repo, path: parsed.active.path }
-              : null;
-          return { projects, active };
-        }
-      }
-      if (this.isPersistedAttachment(parsed)) {
-        return { projects: [parsed], active: { repo: parsed.repo, path: parsed.path } };
-      }
-    } catch {
-      // Malformed persisted state should not block the connect flow.
-    }
-    this.storage?.removeItem(LAST_PROJECT_STORAGE_KEY);
-    return null;
-  }
-
-  private persistAttachmentState(): void {
-    if (this.state.projects.length === 0) {
-      this.storage?.removeItem(LAST_PROJECT_STORAGE_KEY);
-      return;
-    }
-    const projects = this.state.projects.map(({ repo, path, branch, model }) => ({ repo, path, branch, model }));
-    const active = this.state.activeProjectId === "all"
-      ? "all"
-      : this.state.project
-        ? { repo: this.state.project.repo, path: this.state.project.path }
-        : null;
-    this.storage?.setItem(LAST_PROJECT_STORAGE_KEY, JSON.stringify({ projects, active }));
-  }
-
-  private clearLastAttachment(): void {
-    this.storage?.removeItem(LAST_PROJECT_STORAGE_KEY);
+  private persist(): void {
+    persistAttachmentState(this.storage, this.state.projects, this.state.activeProjectId, this.state.project);
   }
 
   private async restoreLastAttachment(): Promise<void> {
     if (this.state.projects.length > 0) return;
-    const saved = this.readLastAttachmentState();
+    const saved = readAttachmentState(this.storage);
     if (!saved) return;
 
     const restored: Project[] = [];
@@ -551,7 +217,7 @@ export class BoardStore {
 
     if (restored.length === 0) {
       const error = `Unable to restore last project (${saved.projects.map((p) => p.repo).join(", ")}): ${failures.join("; ")}. Attach a project to continue.`;
-      this.clearLastAttachment();
+      clearAttachmentState(this.storage);
       this.patch({ project: null, projects: [], activeProjectId: null, error });
       this.notify("error", error);
       return;
@@ -564,7 +230,7 @@ export class BoardStore {
       const active = this.state.projects.find((project) => project.repo === savedActive.repo && project.path === savedActive.path);
       if (active) await this.selectProject(active.id, { persist: false });
     }
-    this.persistAttachmentState();
+    this.persist();
     this.notify("success", `Restored ${restored.length === 1 ? restored[0].repo : `${restored.length} projects`}`);
     if (failures.length > 0) {
       this.notify("error", `Some projects could not be restored: ${failures.join("; ")}`);
@@ -577,21 +243,7 @@ export class BoardStore {
    * cross-client boards reflect work done elsewhere.
    */
   private handleLifecycleEvent(evt: StoryLifecycleEvent): void {
-    const label = evt.wid ? `${evt.wid} — ${evt.title ?? evt.id}` : evt.title ?? evt.id;
-    const map: Record<LifecycleKind, { kind: ToastKind; msg: string }> = {
-      queued: { kind: "info", msg: `Queued ${label}` },
-      started: { kind: "info", msg: `Started ${label}` },
-      review: { kind: "success", msg: `Review ready: ${label}` },
-      done: { kind: "success", msg: `Merged ${label}` },
-      abandoned: { kind: "info", msg: `Abandoned ${label}` },
-      unqueued: { kind: "info", msg: `Moved ${label} to backlog` },
-      drafted: { kind: "success", msg: `Drafted ${label}` },
-      "file-requested": { kind: "info", msg: `Filing requested: ${label}` },
-      filed: { kind: "success", msg: `Filed ${label}` },
-      merged: { kind: "success", msg: `Merged ${label}` },
-      escalated: { kind: "info", msg: `Escalated ${label}` },
-    };
-    const m = map[evt.kind];
+    const m = lifecycleToast(evt);
     if (m) this.notify(m.kind, m.msg, lifecycleActivityMeta(evt));
     const openDetailId = this.state.detail?.story.id;
     const refresh = this.state.project || this.state.projects.length > 0
@@ -612,27 +264,7 @@ export class BoardStore {
     this.patch({ status: "connecting", error: undefined });
 
     try {
-      const mcpFetch = this.mcpFetch ?? (await resolveTauriHttpFetch());
-      this.transport = new StreamableHTTPClientTransport(
-        new URL(this.mcpUrl),
-        mcpFetch ? { fetch: mcpFetch } : undefined
-      );
-      this.client = new Client({ name: "arc-story-queue-board", version: "0.1.0" });
-      this.client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
-        const raw = notification.params?.data;
-        if (typeof raw !== "string") return;
-        try {
-          const parsed = JSON.parse(raw) as { type?: string };
-          if (parsed.type === "story.update") {
-            this.reduce((state) => applyStoryUpdate(state, parsed as StoryUpdateEvent));
-          } else if (parsed.type === "story.event") {
-            this.handleLifecycleEvent(parsed as StoryLifecycleEvent);
-          }
-        } catch {
-          // ignore non-JSON log lines
-        }
-      });
-      await this.client.connect(this.transport);
+      await this.sync.connect();
       this.patch({ status: "connected" });
       await this.restoreLastAttachment();
     } catch (err) {
@@ -645,59 +277,32 @@ export class BoardStore {
   }
 
   async close(): Promise<void> {
-    if (this.client) await this.client.close();
-    this.client = null;
-    this.transport = null;
+    await this.sync.close();
     this.state = createInitialBoardState();
     this.emit();
   }
 
-  private ensureClient(): Client {
-    if (!this.client || this.state.status !== "connected") {
-      throw new Error("Board store is not connected");
-    }
-    return this.client;
-  }
-
   async discover(): Promise<Project[]> {
-    const client = this.ensureClient();
-    const result = await client.callTool({ name: "project.discover", arguments: {} }, CallToolResultSchema);
-    return parseToolResult<Project[]>(result);
+    return this.sync.call<Project[]>("project.discover", {});
   }
 
   async listKnownProjects(): Promise<KnownProject[]> {
-    const client = this.ensureClient();
-    const result = await client.callTool({ name: "projects.known.list", arguments: {} }, CallToolResultSchema);
-    return parseToolResult<KnownProject[]>(result);
+    return this.sync.call<KnownProject[]>("projects.known.list", {});
   }
 
   async forgetKnownProject(path: string): Promise<boolean> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "projects.known.forget", arguments: { path } },
-      CallToolResultSchema
-    );
-    return parseToolResult<{ forgotten: boolean }>(result).forgotten;
+    const result = await this.sync.call<{ forgotten: boolean }>("projects.known.forget", { path });
+    return result.forgotten;
   }
 
   /** List daemon-host directories within the daemon's allowed filesystem root. */
   async listDir(path = ""): Promise<FsDirListing> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "fs.listDir", arguments: { path } },
-      CallToolResultSchema
-    );
-    return parseToolResult<FsDirListing>(result);
+    return this.sync.call<FsDirListing>("fs.listDir", { path });
   }
 
   /** Derive owner/name from a local repo's git origin remote (empty if none). */
   async detectRepoId(path: string): Promise<{ repoId: string | null; remote: string | null }> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "git.repoId", arguments: { path } },
-      CallToolResultSchema
-    );
-    return parseToolResult<{ repoId: string | null; remote: string | null }>(result);
+    return this.sync.call<{ repoId: string | null; remote: string | null }>("git.repoId", { path });
   }
 
   private async safeHydrate(): Promise<void> {
@@ -710,12 +315,7 @@ export class BoardStore {
 
   /** Import a repo's open GitHub issues as backlog stories (via the daemon's gh bridge). */
   async importIssues(repo: string): Promise<Story[]> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "github.import", arguments: { repo } },
-      CallToolResultSchema
-    );
-    const stories = parseToolResult<Story[]>(result);
+    const stories = await this.sync.call<Story[]>("github.import", { repo });
     this.reduce((state) => stories.reduce((s, st) => upsertStoryInState(s, st), state));
     await this.refreshViews();
     this.notify(
@@ -725,7 +325,6 @@ export class BoardStore {
     return stories;
   }
 
-  /** Pull every data set the views render: stories, queue order, runs, config, intake. */
   private projectListWith(project: Project): Project[] {
     const identity = projectIdentity(project);
     return [
@@ -740,6 +339,7 @@ export class BoardStore {
     return null;
   }
 
+  /** Pull every data set the views render: stories, queue order, runs, config, intake. */
   async refreshViews(): Promise<void> {
     if (!this.activeProjectArgs()) {
       await Promise.all([this.loadConfig(), this.loadIntake()]);
@@ -750,18 +350,11 @@ export class BoardStore {
   }
 
   async loadIntake(): Promise<void> {
-    const client = this.ensureClient();
-    const result = await client.callTool({ name: "intake.list", arguments: {} }, CallToolResultSchema);
-    this.patch({ intake: parseToolResult<IntakeItem[]>(result) });
+    this.patch({ intake: await this.sync.call<IntakeItem[]>("intake.list", {}) });
   }
 
   async enqueueIntake(args: { kind: IntakeKind; title: string; description: string }): Promise<IntakeItem> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "intake.enqueue", arguments: args },
-      CallToolResultSchema
-    );
-    const item = parseToolResult<IntakeItem>(result);
+    const item = await this.sync.call<IntakeItem>("intake.enqueue", args);
     await this.loadIntake();
     return item;
   }
@@ -770,12 +363,7 @@ export class BoardStore {
   async draftIntake(id: string): Promise<Story> {
     const project = this.state.project;
     if (!project) throw new Error("No project attached");
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "intake.draft", arguments: { id, projectId: project.id } },
-      CallToolResultSchema
-    );
-    const story = parseToolResult<Story>(result);
+    const story = await this.sync.call<Story>("intake.draft", { id, projectId: project.id });
     this.reduce((state) => upsertStoryInState(state, story));
     await Promise.all([this.loadIntake(), this.hydrate()]);
     return story;
@@ -823,12 +411,8 @@ export class BoardStore {
 
   private async saveStory(story: Story): Promise<Story> {
     const persistedStory = normalizeStory(story);
-    if (this.client && this.state.status === "connected") {
-      const result = await this.client.callTool(
-        { name: "story.save", arguments: { story: persistedStory } },
-        CallToolResultSchema
-      );
-      const saved = parseToolResult<Story>(result);
+    if (this.sync.isConnected()) {
+      const saved = await this.sync.call<Story>("story.save", { story: persistedStory });
       this.updateStoryAndDetail(saved);
       return saved;
     }
@@ -838,7 +422,7 @@ export class BoardStore {
 
   private async createRefineChildren(proposals: IntakeDraftProposal[], repo: string): Promise<Story[]> {
     if (proposals.length === 0) return [];
-    if (this.state.project && this.client && this.state.status === "connected") {
+    if (this.state.project && this.sync.isConnected()) {
       return this.createDraftsFromProposals(proposals);
     }
     const stories = proposals.map((proposal) => this.localDraftFromProposal(proposal, repo));
@@ -888,12 +472,7 @@ export class BoardStore {
     if (!project) throw new Error("No project attached");
     const selected = drafts.filter((draft) => draft.include);
     if (selected.length === 0) return [];
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "intake.createDrafts", arguments: { projectId: project.id, drafts: selected } },
-      CallToolResultSchema
-    );
-    const stories = parseToolResult<Story[]>(result);
+    const stories = await this.sync.call<Story[]>("intake.createDrafts", { projectId: project.id, drafts: selected });
     this.reduce((state) => stories.reduce((s, story) => upsertStoryInState(s, story), state));
     await this.hydrate();
     this.notify("success", `Added ${stories.length} draft${stories.length === 1 ? "" : "s"} to Backlog`);
@@ -907,25 +486,16 @@ export class BoardStore {
   async hydrate(): Promise<void> {
     const args = this.activeProjectArgs();
     if (!args) throw new Error("No project attached");
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "stories.list", arguments: args },
-      CallToolResultSchema
-    );
-    const stories = parseToolResult<Story[]>(result);
+    const stories = await this.sync.call<Story[]>("stories.list", args);
     this.reduce((state) =>
       stories.reduce((s, story) => upsertStoryInState(s, story), state)
     );
   }
 
   async enqueueStory(id: string): Promise<Story> {
-    const client = this.ensureClient();
     let result: unknown;
     try {
-      result = await client.callTool(
-        { name: "story.enqueue", arguments: { id } },
-        CallToolResultSchema
-      );
+      result = await this.sync.callRaw("story.enqueue", { id });
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : "Failed to enqueue story");
     }
@@ -944,42 +514,28 @@ export class BoardStore {
     args: SessionRegisterArgs,
     options: { persist?: boolean } = {}
   ): Promise<Project> {
-    const client = this.ensureClient();
-    const reg = await client.callTool(
-      { name: "session.register", arguments: { ...args } },
-      CallToolResultSchema
-    );
-    const session = parseToolResult<{ id: string }>(reg);
-    const attach = await client.callTool(
-      { name: "project.attach", arguments: { sessionId: session.id } },
-      CallToolResultSchema
-    );
-    const project = parseToolResult<Project>(attach);
+    const session = await this.sync.call<{ id: string }>("session.register", { ...args });
+    const project = await this.sync.call<Project>("project.attach", { sessionId: session.id });
     this.patch({
       project,
       projects: this.projectListWith(project),
       activeProjectId: project.id,
       error: undefined,
     });
-    if (options.persist !== false) this.persistAttachmentState();
+    if (options.persist !== false) this.persist();
     await this.safeHydrate();
     return project;
   }
 
   async attachSession(sessionId: string): Promise<Project> {
-    const client = this.ensureClient();
-    const attach = await client.callTool(
-      { name: "project.attach", arguments: { sessionId } },
-      CallToolResultSchema
-    );
-    const project = parseToolResult<Project>(attach);
+    const project = await this.sync.call<Project>("project.attach", { sessionId });
     this.patch({
       project,
       projects: this.projectListWith(project),
       activeProjectId: project.id,
       error: undefined,
     });
-    this.persistAttachmentState();
+    this.persist();
     await this.safeHydrate();
     return project;
   }
@@ -993,19 +549,14 @@ export class BoardStore {
       if (!project) throw new Error(`Unknown project: ${scope}`);
       this.patch({ project, activeProjectId: project.id, detail: null, error: undefined });
     }
-    if (options.persist !== false) this.persistAttachmentState();
+    if (options.persist !== false) this.persist();
     await this.refreshViews();
   }
 
   async detachProject(projectId: string): Promise<Project> {
     const project = this.state.projects.find((p) => p.id === projectId);
     if (!project) throw new Error(`Unknown project: ${projectId}`);
-    const client = this.ensureClient();
-    const detach = await client.callTool(
-      { name: "project.detach", arguments: { projectId } },
-      CallToolResultSchema
-    );
-    const detached = parseToolResult<Project>(detach);
+    const detached = await this.sync.call<Project>("project.detach", { projectId });
     const projects = this.state.projects.filter((p) => p.id !== projectId);
     const activeWasDetached = this.state.project?.id === projectId;
     const nextProject = projects.length === 0
@@ -1035,7 +586,7 @@ export class BoardStore {
       runs: this.state.runs.filter((run) => run.repo !== project.repo),
       detail: this.state.detail?.story.repo === project.repo ? null : this.state.detail,
     });
-    this.persistAttachmentState();
+    this.persist();
     if (projects.length > 0) await this.refreshViews();
     return detached;
   }
@@ -1046,9 +597,7 @@ export class BoardStore {
   }
 
   async refreshStory(id: string): Promise<BoardStory | null> {
-    const client = this.ensureClient();
-    const result = await client.callTool({ name: "story.get", arguments: { id } }, CallToolResultSchema);
-    const story = parseToolResult<Story | null>(result);
+    const story = await this.sync.call<Story | null>("story.get", { id });
     if (!story) return null;
     this.reduce((state) => upsertStoryInState(state, story));
     return this.state.stories[id] ?? null;
@@ -1063,12 +612,7 @@ export class BoardStore {
   async queueNext(): Promise<Story | null> {
     const project = this.state.project;
     if (!project) throw new Error("No project attached");
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "queue.next", arguments: { projectId: project.id } },
-      CallToolResultSchema
-    );
-    const story = parseToolResult<Story | null>(result);
+    const story = await this.sync.call<Story | null>("queue.next", { projectId: project.id });
     if (story) this.reduce((state) => upsertStoryInState(state, story));
     await this.loadQueue();
     return story;
@@ -1077,12 +621,7 @@ export class BoardStore {
   async loadQueue(): Promise<void> {
     const args = this.activeProjectArgs();
     if (!args) return;
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "queue.list", arguments: args },
-      CallToolResultSchema
-    );
-    const stories = parseToolResult<Story[]>(result);
+    const stories = await this.sync.call<Story[]>("queue.list", args);
     this.reduce((state) => {
       const next = stories.reduce((s, story) => upsertStoryInState(s, story), state);
       return { ...next, queueOrder: stories.map((s) => s.id) };
@@ -1090,12 +629,7 @@ export class BoardStore {
   }
 
   async reorderQueue(id: string, direction: "up" | "down"): Promise<void> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "queue.reorder", arguments: { id, direction } },
-      CallToolResultSchema
-    );
-    const stories = parseToolResult<Story[]>(result);
+    const stories = await this.sync.call<Story[]>("queue.reorder", { id, direction });
     this.reduce((state) => {
       const next = stories.reduce((s, story) => upsertStoryInState(s, story), state);
       return { ...next, queueOrder: stories.map((s) => s.id) };
@@ -1104,12 +638,7 @@ export class BoardStore {
 
   /** Apply an arbitrary drag-reorder of the queue. */
   async reorderQueueTo(ids: string[]): Promise<void> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "queue.setOrder", arguments: { ids } },
-      CallToolResultSchema
-    );
-    const stories = parseToolResult<Story[]>(result);
+    const stories = await this.sync.call<Story[]>("queue.setOrder", { ids });
     this.reduce((state) => {
       const next = stories.reduce((s, story) => upsertStoryInState(s, story), state);
       return { ...next, queueOrder: stories.map((s) => s.id) };
@@ -1118,12 +647,7 @@ export class BoardStore {
 
   /** Pull a story out of the queue back to backlog (drag Queued → Backlog). */
   async unqueueStory(id: string): Promise<Story> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "story.unqueue", arguments: { id } },
-      CallToolResultSchema
-    );
-    const story = parseToolResult<Story>(result);
+    const story = await this.sync.call<Story>("story.unqueue", { id });
     this.reduce((state) => upsertStoryInState(state, story));
     await this.loadQueue();
     return story;
@@ -1140,12 +664,7 @@ export class BoardStore {
   }
 
   async mergeStory(id: string): Promise<Story> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "story.merge", arguments: { id } },
-      CallToolResultSchema
-    );
-    const story = parseToolResult<Story>(result);
+    const story = await this.sync.call<Story>("story.merge", { id });
     this.updateStoryAndDetail(story);
     await Promise.all([this.loadQueue(), this.loadRuns()]);
     return story;
@@ -1158,17 +677,13 @@ export class BoardStore {
    * builds the handoff from the worktree git state and moves the card to Review.
    */
   async reviewStory(id: string): Promise<Story> {
-    const client = this.ensureClient();
     const story = this.state.stories[id];
     if (story && story.column !== "in_progress") {
       throw new Error("Only in-progress stories can be sent to review");
     }
     let result: unknown;
     try {
-      result = await client.callTool(
-        { name: "story.review", arguments: { id } },
-        CallToolResultSchema
-      );
+      result = await this.sync.callRaw("story.review", { id });
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : "Failed to send story to review");
     }
@@ -1182,12 +697,7 @@ export class BoardStore {
   }
 
   async abandonStory(id: string): Promise<Story> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "story.abandon", arguments: { id } },
-      CallToolResultSchema
-    );
-    const story = parseToolResult<Story>(result);
+    const story = await this.sync.call<Story>("story.abandon", { id });
     this.updateStoryAndDetail(story);
     await this.loadQueue();
     return story;
@@ -1195,24 +705,14 @@ export class BoardStore {
 
   /** Flag a draft for Fable to file to GitHub. */
   async requestFile(id: string): Promise<Story> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "story.requestFile", arguments: { id } },
-      CallToolResultSchema
-    );
-    const story = parseToolResult<Story>(result);
+    const story = await this.sync.call<Story>("story.requestFile", { id });
     this.reduce((state) => upsertStoryInState(state, story));
     return story;
   }
 
   /** Manually file a draft with a known issue (deterministic fallback / no Fable). */
   async fileStory(id: string, issue: string): Promise<Story> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "story.file", arguments: { id, issue } },
-      CallToolResultSchema
-    );
-    const story = parseToolResult<Story>(result);
+    const story = await this.sync.call<Story>("story.file", { id, issue });
     this.reduce((state) => upsertStoryInState(state, story));
     return story;
   }
@@ -1220,39 +720,23 @@ export class BoardStore {
   async loadRuns(): Promise<void> {
     const args = this.activeProjectArgs();
     if (!args) return;
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "runs.list", arguments: args },
-      CallToolResultSchema
-    );
-    this.patch({ runs: parseToolResult<RunRecord[]>(result) });
+    this.patch({ runs: await this.sync.call<RunRecord[]>("runs.list", args) });
   }
 
   async loadConfig(): Promise<void> {
-    const client = this.ensureClient();
-    const result = await client.callTool({ name: "config.get", arguments: {} }, CallToolResultSchema);
-    this.patch({ config: parseToolResult<AppConfig>(result) });
+    this.patch({ config: await this.sync.call<AppConfig>("config.get", {}) });
   }
 
   async updateConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
-    const client = this.ensureClient();
-    const result = await client.callTool(
-      { name: "config.set", arguments: patch },
-      CallToolResultSchema
-    );
-    const config = parseToolResult<AppConfig>(result);
+    const config = await this.sync.call<AppConfig>("config.set", patch);
     this.patch({ config });
     return config;
   }
 
   private async refreshOpenDetail(id = this.state.detail?.story.id): Promise<StoryDetail | null> {
-    if (!id || !this.client || this.state.status !== "connected") return null;
+    if (!id || !this.sync.isConnected()) return null;
     const seq = ++this.detailRefreshSeq;
-    const result = await this.client.callTool(
-      { name: "story.detail", arguments: { id } },
-      CallToolResultSchema
-    );
-    const detail = parseToolResult<StoryDetail>(result);
+    const detail = await this.sync.call<StoryDetail>("story.detail", { id });
     this.reduce((state) => {
       if (seq !== this.detailRefreshSeq) return state;
       const next = upsertStoryInState(state, detail.story);
@@ -1275,14 +759,7 @@ export class BoardStore {
   /** Emit a transient toast + a persistent notification/activity entry. */
   notify(kind: ToastKind, message: string, activity?: Partial<ActivityMeta>): void {
     this.notifySeq += 1;
-    const id = `ntf-${this.notifySeq}`;
-    const toast: Toast = { id, kind, message };
-    const note: AppNotification = {
-      ...toast,
-      ts: Date.now(),
-      read: false,
-      activity: { ...defaultActivityMeta(kind, message), ...activity },
-    };
+    const { toast, note } = createNotification(`ntf-${this.notifySeq}`, kind, message, Date.now(), activity);
     this.patch({
       toasts: [...this.state.toasts, toast],
       notifications: [note, ...this.state.notifications].slice(0, 50),
@@ -1338,11 +815,11 @@ export class BoardStore {
   }
 
   liveWorkerCount(): number {
-    return liveWorkerCount(this.state);
+    return computeLiveWorkerCount(this.state);
   }
 
   reservedWorkerCount(): number {
-    return reservedWorkerCount(this.state);
+    return computeReservedWorkerCount(this.state);
   }
 
   getDetail(): StoryDetail | null {
@@ -1352,48 +829,4 @@ export class BoardStore {
   storiesByColumn(column: Column): BoardStory[] {
     return storiesForColumn(this.state, column);
   }
-}
-
-export function workerLanes(story: BoardStory): WorkerLane[] {
-  return Object.values(story.lanes).sort((a, b) => {
-    const ai = ROUTE_ORDER.indexOf(a.route as RouteId);
-    const bi = ROUTE_ORDER.indexOf(b.route as RouteId);
-    if (ai === -1 && bi === -1) return a.route.localeCompare(b.route);
-    if (ai === -1) return 1;
-    if (bi === -1) return -1;
-    return ai - bi;
-  });
-}
-
-export function routeColor(route: string): string {
-  return contractRouteColor(route);
-}
-
-export function routeLabel(route: RouteId | string): string {
-  return contractRouteLabel(route);
-}
-
-export function routeModel(route: RouteId | string): string {
-  return contractRouteModel(route);
-}
-
-export function routeAccess(route: RouteId | string): Access {
-  return contractRouteAccess(route);
-}
-
-export function priorityColor(priority: Story["priority"]): string {
-  if (priority === "high") return "var(--sq-danger)";
-  if (priority === "med") return "var(--sq-running)";
-  return "var(--sq-text-4)";
-}
-
-export function columnDotColor(column: Column): string {
-  const map: Record<Column, string> = {
-    backlog: "var(--sq-text-3)",
-    queued: "var(--sq-queued)",
-    in_progress: "var(--sq-running)",
-    review: "var(--sq-review)",
-    done: "var(--sq-done)",
-  };
-  return map[column];
 }
