@@ -22,7 +22,11 @@ export function QueueView({ store, onOpen }: QueueViewProps) {
         <div>
           <h1 className="sq-view__title">Queue</h1>
           <p className="sq-view__sub">
-            {state.project ? `Ordered work for ${state.project.repo}` : "No project attached"}
+            {state.activeProjectId === "all"
+              ? `Ordered work across ${state.projects.length} projects`
+              : state.project
+                ? `Ordered work for ${state.project.repo}`
+                : "No project attached"}
           </p>
         </div>
         <div className="sq-view__actions">

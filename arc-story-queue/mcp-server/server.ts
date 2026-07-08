@@ -219,6 +219,16 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "project.detach",
+    {
+      title: "Detach project",
+      description: "Detach an attached project without deleting its stories.",
+      inputSchema: { projectId: z.string() },
+    },
+    async ({ projectId }) => jsonResult(await queue.detach(projectId))
+  );
+
+  server.registerTool(
     "intake.enqueue",
     {
       title: "Intake enqueue",

@@ -54,7 +54,11 @@ export function ObservabilityView({ store }: ObservabilityViewProps) {
         <div>
           <h1 className="sq-view__title">Observability</h1>
           <p className="sq-view__sub">
-            {state.project ? `Runs for ${state.project.repo}` : "No project attached"}
+            {state.activeProjectId === "all"
+              ? `Runs across ${state.projects.length} projects`
+              : state.project
+                ? `Runs for ${state.project.repo}`
+                : "No project attached"}
           </p>
         </div>
       </header>

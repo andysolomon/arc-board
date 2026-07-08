@@ -280,6 +280,12 @@ export class QueueManager {
     return project;
   }
 
+  async detach(projectId: string): Promise<Project> {
+    const project = this.registry.detach(projectId);
+    validateProject(project);
+    return project;
+  }
+
   async file(id: string, issue: string): Promise<Story> {
     const story = this.store.getStory(id);
     if (!story) throw new Error(`Unknown story: ${id}`);

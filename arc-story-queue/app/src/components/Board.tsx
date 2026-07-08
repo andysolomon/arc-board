@@ -152,7 +152,11 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
         <div>
           <h1 className="sq-view__title">Board</h1>
           <p className="sq-view__sub">
-            {state.project ? state.project.repo : "No project attached"}
+            {state.activeProjectId === "all"
+              ? `All projects · ${state.projects.length} attached`
+              : state.project
+                ? state.project.repo
+                : "No project attached"}
           </p>
         </div>
         {state.project && (

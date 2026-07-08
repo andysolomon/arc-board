@@ -50,7 +50,7 @@ export function AppShell({ store }: AppShellProps) {
   // exactly when the inputs change (config, connection, in-progress count, queue depth)
   // rather than on every render.
   const { autoRun, maxParallel } = state.config;
-  const attached = !!state.project;
+  const attached = !!state.project || state.activeProjectId === "all";
 
   // Re-evaluate recent-worker liveness even if no fresh SSE arrives, so stale streams
   // naturally fall back to the reserved/no-worker state.
@@ -121,7 +121,7 @@ export function AppShell({ store }: AppShellProps) {
           aria-label="Refresh"
           title="Refresh"
           onClick={() => void store.refreshViews()}
-          disabled={!connected || !state.project}
+          disabled={!connected || !attached}
         >
           ⟳
         </button>
@@ -130,7 +130,7 @@ export function AppShell({ store }: AppShellProps) {
           type="button"
           className="btn btn--primary"
           onClick={() => setIntakeOpen(true)}
-          disabled={!connected}
+          disabled={!connected || !state.project}
         >
           + New Story
         </button>

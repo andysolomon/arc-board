@@ -96,6 +96,18 @@ export class SessionRegistry {
     return project;
   }
 
+  detach(projectId: string): Project {
+    const project = this.projects.get(projectId);
+    if (!project) throw new Error(`Unknown project: ${projectId}`);
+    const session = [...this.sessions.values()].find((s) => s.projectId === projectId);
+    if (session) {
+      session.status = "connected";
+      session.projectId = undefined;
+    }
+    this.projects.delete(projectId);
+    return { ...project, status: "detached" };
+  }
+
   unregister(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (session?.projectId) this.projects.delete(session.projectId);

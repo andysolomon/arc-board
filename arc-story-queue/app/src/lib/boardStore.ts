@@ -90,9 +90,13 @@ export interface BoardStoreOptions {
   mcpFetch?: FetchLike | null;
 }
 
+export type ProjectScope = "all" | string | null;
+
 export interface BoardState {
   status: ConnectionStatus;
   project: Project | null;
+  projects: Project[];
+  activeProjectId: ProjectScope;
   stories: Record<string, BoardStory>;
   trackedIds: string[];
   runs: RunRecord[];
@@ -154,6 +158,11 @@ interface PersistedProjectAttachment {
   path: string;
   branch: string;
   model: string;
+}
+
+interface PersistedProjectAttachmentState {
+  projects: PersistedProjectAttachment[];
+  active: "all" | { repo: string; path: string } | null;
 }
 
 export const LAST_PROJECT_STORAGE_KEY = "arc-story-queue:last-project";
@@ -414,6 +423,8 @@ export function createInitialBoardState(): BoardState {
   return {
     status: "disconnected",
     project: null,
+    projects: [],
+    activeProjectId: null,
     stories: {},
     trackedIds: [],
     runs: [],
@@ -490,9 +501,24 @@ export function applyStoryUpdate(state: BoardState, event: StoryUpdateEvent): Bo
   return { ...state, stories, trackedIds };
 }
 
+function projectIdentity(project: Pick<Project, "repo" | "path">): string {
+  return `${project.repo}\u0000${project.path}`;
+}
+
+function activeRepoFilter(state: BoardState, repo?: string): ((story: { repo: string }) => boolean) {
+  if (repo) return (story) => story.repo === repo;
+  if (state.activeProjectId === "all") {
+    const repos = new Set(state.projects.map((project) => project.repo));
+    return (story) => repos.has(story.repo);
+  }
+  if (state.project) return (story) => story.repo === state.project!.repo;
+  return () => state.projects.length === 0 && state.activeProjectId === null;
+}
+
 export function storiesForColumn(state: BoardState, column: Column, repo?: string): BoardStory[] {
+  const matchesRepo = activeRepoFilter(state, repo);
   return Object.values(state.stories)
-    .filter((s) => s.column === column && (!repo || s.repo === repo))
+    .filter((s) => s.column === column && matchesRepo(s))
     .sort((a, b) => a.wid.localeCompare(b.wid));
 }
 
@@ -508,15 +534,13 @@ export function hasLiveWorker(story: BoardStory, now = Date.now(), recencyMs = 3
 }
 
 export function liveWorkerCount(state: BoardState, now = Date.now(), recencyMs = 30_000): number {
-  const repo = state.project?.repo;
-  return storiesForColumn(state, "in_progress", repo).filter((story) =>
+  return storiesForColumn(state, "in_progress").filter((story) =>
     hasLiveWorker(story, now, recencyMs)
   ).length;
 }
 
 export function reservedWorkerCount(state: BoardState, now = Date.now(), recencyMs = 30_000): number {
-  const repo = state.project?.repo;
-  return storiesForColumn(state, "in_progress", repo).filter(
+  return storiesForColumn(state, "in_progress").filter(
     (story) => !hasLiveWorker(story, now, recencyMs)
   ).length;
 }
@@ -573,18 +597,33 @@ export class BoardStore {
     this.emit();
   }
 
-  private readLastAttachment(): PersistedProjectAttachment | null {
+  private isPersistedAttachment(value: Partial<PersistedProjectAttachment>): value is PersistedProjectAttachment {
+    return (
+      typeof value.repo === "string" &&
+      typeof value.path === "string" &&
+      typeof value.branch === "string" &&
+      typeof value.model === "string"
+    );
+  }
+
+  private readLastAttachmentState(): PersistedProjectAttachmentState | null {
     const raw = this.storage?.getItem(LAST_PROJECT_STORAGE_KEY);
     if (!raw) return null;
     try {
-      const parsed = JSON.parse(raw) as Partial<PersistedProjectAttachment>;
-      if (
-        typeof parsed.repo === "string" &&
-        typeof parsed.path === "string" &&
-        typeof parsed.branch === "string" &&
-        typeof parsed.model === "string"
-      ) {
-        return parsed as PersistedProjectAttachment;
+      const parsed = JSON.parse(raw) as Partial<PersistedProjectAttachmentState> & Partial<PersistedProjectAttachment>;
+      if (Array.isArray(parsed.projects)) {
+        const projects = parsed.projects.filter((p): p is PersistedProjectAttachment => this.isPersistedAttachment(p));
+        if (projects.length > 0) {
+          const active = parsed.active === "all" || parsed.active === null
+            ? parsed.active
+            : parsed.active && typeof parsed.active.repo === "string" && typeof parsed.active.path === "string"
+              ? { repo: parsed.active.repo, path: parsed.active.path }
+              : null;
+          return { projects, active };
+        }
+      }
+      if (this.isPersistedAttachment(parsed)) {
+        return { projects: [parsed], active: { repo: parsed.repo, path: parsed.path } };
       }
     } catch {
       // Malformed persisted state should not block the connect flow.
@@ -593,8 +632,18 @@ export class BoardStore {
     return null;
   }
 
-  private persistAttachment(args: PersistedProjectAttachment): void {
-    this.storage?.setItem(LAST_PROJECT_STORAGE_KEY, JSON.stringify(args));
+  private persistAttachmentState(): void {
+    if (this.state.projects.length === 0) {
+      this.storage?.removeItem(LAST_PROJECT_STORAGE_KEY);
+      return;
+    }
+    const projects = this.state.projects.map(({ repo, path, branch, model }) => ({ repo, path, branch, model }));
+    const active = this.state.activeProjectId === "all"
+      ? "all"
+      : this.state.project
+        ? { repo: this.state.project.repo, path: this.state.project.path }
+        : null;
+    this.storage?.setItem(LAST_PROJECT_STORAGE_KEY, JSON.stringify({ projects, active }));
   }
 
   private clearLastAttachment(): void {
@@ -602,20 +651,41 @@ export class BoardStore {
   }
 
   private async restoreLastAttachment(): Promise<void> {
-    if (this.state.project) return;
-    const saved = this.readLastAttachment();
+    if (this.state.projects.length > 0) return;
+    const saved = this.readLastAttachmentState();
     if (!saved) return;
 
-    try {
-      await this.registerAndAttach({ ...saved, pid: 0 }, { persist: false });
-      this.persistAttachment(saved);
-      this.notify("success", `Restored ${saved.repo}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const error = `Unable to restore last project (${saved.repo}): ${msg}. Attach a project to continue.`;
+    const restored: Project[] = [];
+    const failures: string[] = [];
+    for (const attachment of saved.projects) {
+      try {
+        const project = await this.registerAndAttach({ ...attachment, pid: 0 }, { persist: false });
+        restored.push(project);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        failures.push(`${attachment.repo}: ${msg}`);
+      }
+    }
+
+    if (restored.length === 0) {
+      const error = `Unable to restore last project (${saved.projects.map((p) => p.repo).join(", ")}): ${failures.join("; ")}. Attach a project to continue.`;
       this.clearLastAttachment();
-      this.patch({ project: null, error });
+      this.patch({ project: null, projects: [], activeProjectId: null, error });
       this.notify("error", error);
+      return;
+    }
+
+    if (saved.active === "all" && restored.length > 1) {
+      await this.selectProject("all", { persist: false });
+    } else if (saved.active && saved.active !== "all") {
+      const savedActive = saved.active;
+      const active = this.state.projects.find((project) => project.repo === savedActive.repo && project.path === savedActive.path);
+      if (active) await this.selectProject(active.id, { persist: false });
+    }
+    this.persistAttachmentState();
+    this.notify("success", `Restored ${restored.length === 1 ? restored[0].repo : `${restored.length} projects`}`);
+    if (failures.length > 0) {
+      this.notify("error", `Some projects could not be restored: ${failures.join("; ")}`);
     }
   }
 
@@ -641,7 +711,7 @@ export class BoardStore {
     };
     const m = map[evt.kind];
     if (m) this.notify(m.kind, m.msg, lifecycleActivityMeta(evt));
-    if (this.state.project) void this.refreshViews().catch(() => undefined);
+    if (this.state.project || this.state.projects.length > 0) void this.refreshViews().catch(() => undefined);
   }
 
   async connect(): Promise<void> {
@@ -738,7 +808,25 @@ export class BoardStore {
   }
 
   /** Pull every data set the views render: stories, queue order, runs, config, intake. */
+  private projectListWith(project: Project): Project[] {
+    const identity = projectIdentity(project);
+    return [
+      ...this.state.projects.filter((existing) => existing.id !== project.id && projectIdentity(existing) !== identity),
+      project,
+    ];
+  }
+
+  private activeProjectArgs(): { projectId?: string } | null {
+    if (this.state.activeProjectId === "all") return {};
+    if (this.state.project) return { projectId: this.state.project.id };
+    return null;
+  }
+
   async refreshViews(): Promise<void> {
+    if (!this.activeProjectArgs()) {
+      await Promise.all([this.loadConfig(), this.loadIntake()]);
+      return;
+    }
     await this.hydrate();
     await Promise.all([this.loadQueue(), this.loadRuns(), this.loadConfig(), this.loadIntake()]);
   }
@@ -858,11 +946,11 @@ export class BoardStore {
   }
 
   async hydrate(): Promise<void> {
-    const project = this.state.project;
-    if (!project) throw new Error("No project attached");
+    const args = this.activeProjectArgs();
+    if (!args) throw new Error("No project attached");
     const client = this.ensureClient();
     const result = await client.callTool(
-      { name: "stories.list", arguments: { projectId: project.id } },
+      { name: "stories.list", arguments: args },
       CallToolResultSchema
     );
     const stories = parseToolResult<Story[]>(result);
@@ -908,15 +996,13 @@ export class BoardStore {
       CallToolResultSchema
     );
     const project = parseToolResult<Project>(attach);
-    if (options.persist !== false) {
-      this.persistAttachment({
-        repo: args.repo,
-        path: args.path,
-        branch: args.branch,
-        model: args.model,
-      });
-    }
-    this.patch({ project, error: undefined });
+    this.patch({
+      project,
+      projects: this.projectListWith(project),
+      activeProjectId: project.id,
+      error: undefined,
+    });
+    if (options.persist !== false) this.persistAttachmentState();
     await this.safeHydrate();
     return project;
   }
@@ -928,15 +1014,71 @@ export class BoardStore {
       CallToolResultSchema
     );
     const project = parseToolResult<Project>(attach);
-    this.persistAttachment({
-      repo: project.repo,
-      path: project.path,
-      branch: project.branch,
-      model: project.model,
+    this.patch({
+      project,
+      projects: this.projectListWith(project),
+      activeProjectId: project.id,
+      error: undefined,
     });
-    this.patch({ project, error: undefined });
+    this.persistAttachmentState();
     await this.safeHydrate();
     return project;
+  }
+
+  async selectProject(scope: Exclude<ProjectScope, null>, options: { persist?: boolean } = {}): Promise<void> {
+    if (scope === "all") {
+      if (this.state.projects.length === 0) throw new Error("No projects attached");
+      this.patch({ project: null, activeProjectId: "all", detail: null, error: undefined });
+    } else {
+      const project = this.state.projects.find((p) => p.id === scope);
+      if (!project) throw new Error(`Unknown project: ${scope}`);
+      this.patch({ project, activeProjectId: project.id, detail: null, error: undefined });
+    }
+    if (options.persist !== false) this.persistAttachmentState();
+    await this.refreshViews();
+  }
+
+  async detachProject(projectId: string): Promise<Project> {
+    const project = this.state.projects.find((p) => p.id === projectId);
+    if (!project) throw new Error(`Unknown project: ${projectId}`);
+    const client = this.ensureClient();
+    const detach = await client.callTool(
+      { name: "project.detach", arguments: { projectId } },
+      CallToolResultSchema
+    );
+    const detached = parseToolResult<Project>(detach);
+    const projects = this.state.projects.filter((p) => p.id !== projectId);
+    const activeWasDetached = this.state.project?.id === projectId;
+    const nextProject = projects.length === 0
+      ? null
+      : activeWasDetached
+        ? projects[0]
+        : this.state.project;
+    const activeProjectId: ProjectScope = projects.length === 0
+      ? null
+      : activeWasDetached
+        ? nextProject!.id
+        : this.state.activeProjectId;
+    const storyIdsToRemove = new Set(
+      Object.values(this.state.stories)
+        .filter((story) => story.repo === project.repo)
+        .map((story) => story.id)
+    );
+    const stories = Object.fromEntries(
+      Object.entries(this.state.stories).filter(([id]) => !storyIdsToRemove.has(id))
+    ) as Record<string, BoardStory>;
+    this.patch({
+      project: nextProject,
+      projects,
+      activeProjectId,
+      stories,
+      queueOrder: this.state.queueOrder.filter((id) => !storyIdsToRemove.has(id)),
+      runs: this.state.runs.filter((run) => run.repo !== project.repo),
+      detail: this.state.detail?.story.repo === project.repo ? null : this.state.detail,
+    });
+    this.persistAttachmentState();
+    if (projects.length > 0) await this.refreshViews();
+    return detached;
   }
 
   trackStory(id: string): void {
@@ -974,11 +1116,11 @@ export class BoardStore {
   }
 
   async loadQueue(): Promise<void> {
-    const project = this.state.project;
-    if (!project) return;
+    const args = this.activeProjectArgs();
+    if (!args) return;
     const client = this.ensureClient();
     const result = await client.callTool(
-      { name: "queue.list", arguments: { projectId: project.id } },
+      { name: "queue.list", arguments: args },
       CallToolResultSchema
     );
     const stories = parseToolResult<Story[]>(result);
@@ -1087,11 +1229,11 @@ export class BoardStore {
   }
 
   async loadRuns(): Promise<void> {
-    const project = this.state.project;
-    if (!project) return;
+    const args = this.activeProjectArgs();
+    if (!args) return;
     const client = this.ensureClient();
     const result = await client.callTool(
-      { name: "runs.list", arguments: { projectId: project.id } },
+      { name: "runs.list", arguments: args },
       CallToolResultSchema
     );
     this.patch({ runs: parseToolResult<RunRecord[]>(result) });
@@ -1179,13 +1321,15 @@ export class BoardStore {
 
   /** Queued stories in daemon queue order. */
   queueStories(): BoardStory[] {
+    const matchesRepo = activeRepoFilter(this.state);
     return this.state.queueOrder
       .map((id) => this.state.stories[id])
-      .filter((s): s is BoardStory => !!s);
+      .filter((s): s is BoardStory => !!s && matchesRepo(s));
   }
 
   getRuns(): RunRecord[] {
-    return this.state.runs;
+    const matchesRepo = activeRepoFilter(this.state);
+    return this.state.runs.filter((run) => matchesRepo(run));
   }
 
   getConfig(): AppConfig {
@@ -1205,8 +1349,7 @@ export class BoardStore {
   }
 
   storiesByColumn(column: Column): BoardStory[] {
-    const repo = this.state.project?.repo;
-    return storiesForColumn(this.state, column, repo);
+    return storiesForColumn(this.state, column);
   }
 }
 

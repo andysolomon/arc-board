@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import type { Project } from "arc-contracts";
 import type { BoardStore } from "../lib/boardStore";
 
+function projectSubline(project: Pick<Project, "path" | "branch" | "model">): string {
+  return `${project.path} · ${project.branch} · ${project.model}`;
+}
+
 export function ProjectSwitcher({ store }: { store: BoardStore }) {
   const [open, setOpen] = useState(false);
 
@@ -20,14 +24,21 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
   const [repoId, setRepoId] = useState("local/project");
   const state = store.getState();
   const project = state.project;
+  const attached = state.projects;
+  const activeAll = state.activeProjectId === "all";
+  const label = activeAll ? "All projects" : project ? project.repo : "Connect…";
+
+  async function refreshDiscovered() {
+    if (store.getState().status !== "connected") await store.connect();
+    setDiscovered(await store.discover());
+  }
 
   async function openMenu() {
     setOpen(true);
     setError(null);
     setBusy(true);
     try {
-      if (state.status !== "connected") await store.connect();
-      setDiscovered(await store.discover());
+      await refreshDiscovered();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -53,7 +64,34 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
     try {
       if (store.getState().status !== "connected") await store.connect();
       await store.attachSession(id);
+      await refreshDiscovered();
       setOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function switchTo(scope: "all" | string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await store.selectProject(scope);
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function detach(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await store.detachProject(id);
+      await refreshDiscovered();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -106,7 +144,7 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : void openMenu())}
       >
-        <span className="sq-mono sq-switcher__label">{project ? project.repo : "Connect…"}</span>
+        <span className="sq-mono sq-switcher__label">{label}</span>
         <span aria-hidden>▾</span>
       </button>
 
@@ -114,15 +152,63 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
         <>
           <div className="sq-bell__scrim" onClick={() => setOpen(false)} />
           <div className="sq-switcher__popover sq-scroll" role="dialog" aria-label="Switch project">
-            <div className="sq-block__label">Sessions</div>
+            <div className="sq-block__label">Attached sessions</div>
+            {attached.length > 1 && (
+              <button
+                type="button"
+                className={`sq-switcher__row sq-switcher__row--button${activeAll ? " sq-switcher__row--active" : ""}`}
+                onClick={() => void switchTo("all")}
+                disabled={busy}
+              >
+                <span className="sq-switcher__check" aria-hidden>{activeAll ? "✓" : ""}</span>
+                <span className="sq-switcher__main">
+                  <span className="sq-mono sq-switcher__repo">All projects</span>
+                  <span className="sq-mono sq-switcher__meta">Aggregate board, queue, and observability</span>
+                </span>
+              </button>
+            )}
+            {attached.length === 0 && (
+              <div className="sq-empty">No attached sessions</div>
+            )}
+            {attached.map((p) => {
+              const active = !activeAll && project?.id === p.id;
+              return (
+                <div key={p.id} className={`sq-switcher__row${active ? " sq-switcher__row--active" : ""}`}>
+                  <button
+                    type="button"
+                    className="sq-switcher__select"
+                    onClick={() => void switchTo(p.id)}
+                    disabled={busy}
+                  >
+                    <span className="sq-switcher__check" aria-hidden>{active ? "✓" : ""}</span>
+                    <span className="sq-switcher__main">
+                      <span className="sq-mono sq-switcher__repo">{p.repo}</span>
+                      <span className="sq-mono sq-switcher__meta">{projectSubline(p)}</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="sq-iconbtn sq-switcher__detach"
+                    aria-label={`Detach ${p.repo}`}
+                    title={`Detach ${p.repo}`}
+                    onClick={() => void detach(p.id)}
+                    disabled={busy}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+
+            <div className="sq-block__label">Available sessions</div>
             {discovered.length === 0 && (
               <div className="sq-empty">{busy ? "Discovering…" : "No unattached sessions"}</div>
             )}
             {discovered.map((d) => (
               <div key={d.id} className="sq-switcher__row">
-                <span className="sq-mono sq-switcher__repo">{d.repo}</span>
-                <span className="sq-mono sq-switcher__meta">
-                  {d.branch} · {d.model}
+                <span className="sq-switcher__main">
+                  <span className="sq-mono sq-switcher__repo">{d.repo}</span>
+                  <span className="sq-mono sq-switcher__meta">{projectSubline(d)}</span>
                 </span>
                 <button
                   type="button"
