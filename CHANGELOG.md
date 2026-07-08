@@ -1,3 +1,10 @@
+## [1.16.1](https://github.com/andysolomon/arc-board/compare/v1.16.0...v1.16.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* restore board horizontal scroll after liquid-glass reshell ([#64](https://github.com/andysolomon/arc-board/issues/64)) ([3e08288](https://github.com/andysolomon/arc-board/commit/3e082882c53164a5ccd12fb06158c41d34f9768f)), closes [#61](https://github.com/andysolomon/arc-board/issues/61)
+
 # [1.16.0](https://github.com/andysolomon/arc-board/compare/v1.15.0...v1.16.0) (2026-07-08)
 
 
