@@ -717,6 +717,43 @@ body {
 .sq-outcome--rejected { color: var(--sq-danger); background: rgba(255, 107, 107, 0.14); }
 .sq-outcome--unrated { color: var(--sq-text-3); background: rgba(255, 255, 255, 0.05); }
 
+/* ── Activity timeline ─────────────────────────────────────────────── */
+.sq-activity-view { max-width: 760px; margin: 0 auto; width: 100%; }
+.sq-activity { display: flex; flex-direction: column; }
+.sq-activity__item { display: flex; gap: var(--sq-4); }
+.sq-activity__rail {
+  display: flex; flex-direction: column; align-items: center; flex: none;
+}
+.sq-activity__icon {
+  width: 30px; height: 30px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--sq-text-1);
+  background: rgba(124, 156, 255, 0.12);
+  border: 1px solid rgba(124, 156, 255, 0.28);
+}
+.sq-activity__icon--started,
+.sq-activity__icon--review,
+.sq-activity__icon--filed { background: rgba(124, 156, 255, 0.14); border-color: rgba(124, 156, 255, 0.36); }
+.sq-activity__icon--queued,
+.sq-activity__icon--drafted,
+.sq-activity__icon--done,
+.sq-activity__icon--merged,
+.sq-activity__icon--success { background: rgba(62, 207, 142, 0.13); border-color: rgba(62, 207, 142, 0.34); }
+.sq-activity__icon--file-requested,
+.sq-activity__icon--abandoned,
+.sq-activity__icon--escalated { background: rgba(245, 181, 68, 0.13); border-color: rgba(245, 181, 68, 0.34); }
+.sq-activity__icon--unqueued,
+.sq-activity__icon--info { background: rgba(255, 255, 255, 0.07); border-color: var(--sq-border-soft); }
+.sq-activity__icon--error { background: rgba(255, 107, 107, 0.14); border-color: rgba(255, 107, 107, 0.36); }
+.sq-activity__line {
+  flex: 1; width: 1.5px; min-height: 14px; margin: 3px 0;
+  background: rgba(255, 255, 255, 0.08);
+}
+.sq-activity__body { flex: 1; min-width: 0; padding-bottom: var(--sq-5); }
+.sq-activity__copy { font-size: 13px; color: var(--sq-text-2); line-height: 1.45; }
+.sq-activity__subject { font-weight: 700; color: var(--sq-text-1); }
+.sq-activity__time { display: block; margin-top: 3px; font-size: 11px; color: var(--sq-text-4); }
+
 /* ── Orchestrator ──────────────────────────────────────────────────── */
 .sq-conn { display: flex; align-items: center; gap: var(--sq-4); flex-wrap: wrap; }
 .sq-conn__meta { font-size: 11px; color: var(--sq-text-3); }

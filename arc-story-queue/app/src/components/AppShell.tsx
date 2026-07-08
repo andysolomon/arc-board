@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BoardStore } from "../lib/boardStore";
 import { BoardView } from "./Board";
 import { QueueView } from "./QueueView";
+import { ActivityView } from "./ActivityView";
 import { ObservabilityView } from "./ObservabilityView";
 import { OrchestratorView } from "./OrchestratorView";
 import { StoryDrawer } from "./StoryDrawer";
@@ -10,17 +11,19 @@ import { ToastHost } from "./ToastHost";
 import { NotificationsBell } from "./NotificationsBell";
 import { ProjectSwitcher } from "./ProjectSwitcher";
 
-type ViewId = "board" | "queue" | "observability" | "orchestrator";
+type ViewId = "board" | "queue" | "activity" | "observability" | "orchestrator";
 
 const NAV: Array<{ id: ViewId; label: string }> = [
   { id: "board", label: "Board" },
   { id: "queue", label: "Queue" },
+  { id: "activity", label: "Activity" },
   { id: "observability", label: "Observability" },
   { id: "orchestrator", label: "Orchestrator" },
 ];
 
 function navCount(store: BoardStore, id: ViewId): number | null {
   if (id === "queue") return store.queueStories().length;
+  if (id === "activity") return store.unreadCount() || null;
   if (id === "observability") return store.getRuns().length;
   return null;
 }
@@ -67,6 +70,10 @@ export function AppShell({ store }: AppShellProps) {
       autoPulling.current = false;
     });
   }, [store, autoRun, maxParallel, connected, attached, runningCount, queueLen]);
+
+  useEffect(() => {
+    if (view === "activity") store.markNotificationsRead();
+  }, [view, store, state.notifications]);
 
   async function openStory(id: string) {
     try {
@@ -151,6 +158,7 @@ export function AppShell({ store }: AppShellProps) {
         <main className="sq-main sq-scroll">
           {view === "board" && <BoardView store={store} onOpen={openStory} />}
           {view === "queue" && <QueueView store={store} onOpen={openStory} />}
+          {view === "activity" && <ActivityView store={store} />}
           {view === "observability" && <ObservabilityView store={store} />}
           {view === "orchestrator" && <OrchestratorView store={store} />}
         </main>
