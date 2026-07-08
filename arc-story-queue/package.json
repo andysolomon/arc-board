@@ -13,6 +13,7 @@
     "daemon": "node --experimental-sqlite mcp-server/dist/index.js",
     "file-agent": "npm run build && node mcp-server/dist/file-agent.js",
     "worker": "npm run build && node mcp-server/dist/worker.js",
+    "arc-worker": "npm run build && node mcp-server/dist/arc-worker.js",
     "fable:pull": "npm run build && node mcp-server/dist/fable-pull-loop.js pull",
     "fable:update": "npm run build && node mcp-server/dist/fable-pull-loop.js update",
     "fable:complete": "npm run build && node mcp-server/dist/fable-pull-loop.js complete",

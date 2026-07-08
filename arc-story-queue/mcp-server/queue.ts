@@ -205,6 +205,23 @@ export class QueueManager {
     return { ok: true };
   }
 
+  async block(args: {
+    id: string;
+    handoff: Handoff;
+    outcome: Extract<AnnotateOutcome, "blocked" | "verification-failed" | "escalated">;
+  }): Promise<{ ok: true }> {
+    validateHandoff(args.handoff);
+    const s = this.store.getStory(args.id);
+    if (!s) throw new Error(`Unknown story: ${args.id}`);
+
+    this.store.saveHandoff(args.id, args.handoff);
+    s.annotation = args.outcome;
+    this.store.upsertStory(s);
+
+    if (s.worktree) this.releaseWrite(s.worktree);
+    return { ok: true };
+  }
+
   /** Derive the repo's default base branch for PRs (origin/HEAD, else "main"). */
   private baseBranch(worktree: string): string {
     try {
