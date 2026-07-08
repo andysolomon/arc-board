@@ -9,6 +9,7 @@ import type {
   IntakeGenerateResult,
   IntakeItem,
   IntakeKind,
+  KnownProject,
   Project,
   RouteId,
   RunRecord,
@@ -864,6 +865,21 @@ export class BoardStore {
     const client = this.ensureClient();
     const result = await client.callTool({ name: "project.discover", arguments: {} }, CallToolResultSchema);
     return parseToolResult<Project[]>(result);
+  }
+
+  async listKnownProjects(): Promise<KnownProject[]> {
+    const client = this.ensureClient();
+    const result = await client.callTool({ name: "projects.known.list", arguments: {} }, CallToolResultSchema);
+    return parseToolResult<KnownProject[]>(result);
+  }
+
+  async forgetKnownProject(path: string): Promise<boolean> {
+    const client = this.ensureClient();
+    const result = await client.callTool(
+      { name: "projects.known.forget", arguments: { path } },
+      CallToolResultSchema
+    );
+    return parseToolResult<{ forgotten: boolean }>(result).forgotten;
   }
 
   /** List daemon-host directories within the daemon's allowed filesystem root. */

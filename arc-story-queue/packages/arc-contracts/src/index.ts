@@ -127,6 +127,16 @@ export interface Project {
   status: "attached" | "detached";
 }
 
+/** Durable daemon-side record of a repo path that can be reconnected later. */
+export interface KnownProject {
+  repo: string;
+  path: string;
+  branch: string;
+  model: string;
+  lastUsedAt: number;
+  exists: boolean;
+}
+
 export interface FsDirEntry {
   name: string;
   path: string;

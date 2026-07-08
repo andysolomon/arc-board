@@ -248,3 +248,48 @@ describe("QueueManager parallelism law", () => {
     expect(result).toBeNull();
   });
 });
+
+describe("QueueManager known projects", () => {
+  it("persists attached projects recent-first and can forget them", async () => {
+    const dbDir = mkdtempSync(join(tmpdir(), "arc-known-db-"));
+    tmpDirs.push(dbDir);
+    const dbPath = join(dbDir, "store.db");
+    const repoA = mkdtempSync(join(tmpdir(), "arc-known-a-"));
+    const repoB = mkdtempSync(join(tmpdir(), "arc-known-b-"));
+    tmpDirs.push(repoA, repoB);
+
+    const firstStore = new StoryStore(dbPath);
+    const registry = new SessionRegistry();
+    const queue = new QueueManager(
+      { worktreeRoot: "/tmp/wt", maxParallel: 2 },
+      { store: firstStore, registry, sse: new SseHub() }
+    );
+
+    const sessionA = registry.register({ repo: "test/a", path: repoA, branch: "main", model: "vitest", pid: 1 });
+    await queue.attach(sessionA.id);
+    expect(queue.listKnownProjects().map((project) => project.path)).toContain(repoA);
+
+    firstStore.upsertKnownProject({ repo: "test/a", path: repoA, branch: "main", model: "vitest" }, 100);
+    firstStore.upsertKnownProject({ repo: "test/b", path: repoB, branch: "main", model: "vitest" }, 200);
+
+    expect(queue.listKnownProjects().map((project) => project.path)).toEqual([repoB, repoA]);
+    firstStore.close();
+
+    const secondStore = new StoryStore(dbPath);
+    expect(secondStore.listKnownProjects().map((project) => project.path)).toEqual([repoB, repoA]);
+    expect(secondStore.forgetKnownProject(repoA)).toBe(true);
+    expect(secondStore.listKnownProjects().map((project) => project.path)).toEqual([repoB]);
+    secondStore.close();
+  });
+
+  it("flags a known path that disappeared instead of dropping the row", () => {
+    const { store } = makeQueue();
+    const repo = mkdtempSync(join(tmpdir(), "arc-known-missing-"));
+    tmpDirs.push(repo);
+    store.upsertKnownProject({ repo: "test/missing", path: repo, branch: "main", model: "vitest" });
+    expect(store.listKnownProjects()[0]?.exists).toBe(true);
+
+    rmSync(repo, { recursive: true, force: true });
+    expect(store.listKnownProjects()[0]).toMatchObject({ path: repo, exists: false });
+  });
+});
