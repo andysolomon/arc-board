@@ -5,7 +5,7 @@ import type { AnnotateOutcome, AppConfig, Handoff, Plan, Project, RunRecord, Sto
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
 import type { StoryStore } from "./store.js";
-import { validateHandoff, validatePlan, validateProject, validateRunRecord } from "./validate.js";
+import { validateHandoff, validatePlan, validateProject, validateRunRecord, validateStory } from "./validate.js";
 import { ghListIssues, importIssuesToStore, type IssueLister } from "./github-import.js";
 
 const READ_ONLY_ROUTES = new Set([
@@ -150,6 +150,14 @@ export class QueueManager {
       this.store.upsertStory(s);
     }
     return { ok: true };
+  }
+
+  async save(story: Story): Promise<Story> {
+    const existing = this.store.getStory(story.id);
+    if (!existing) throw new Error(`Unknown story: ${story.id}`);
+    validateStory(story);
+    this.store.upsertStory(story);
+    return story;
   }
 
   async update(args: {

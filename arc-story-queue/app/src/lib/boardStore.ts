@@ -2,7 +2,9 @@ import type {
   Access,
   AppConfig,
   Column,
+  GherkinScenario,
   IntakeDraftProposal,
+  IntakeDraftSource,
   IntakeGenerateResult,
   IntakeItem,
   IntakeKind,
@@ -82,6 +84,16 @@ export interface ModelCompleteArgs {
   messages: Array<{ role: "user"; content: string }>;
 }
 export type ModelComplete = (args: ModelCompleteArgs) => Promise<string>;
+
+export type RefineAction = "split" | "tighten" | "dedupe";
+
+export interface RefineResult {
+  action: RefineAction;
+  source: IntakeDraftSource;
+  note: string;
+  story: Story;
+  children: Story[];
+}
 
 export interface BoardStoreOptions {
   storage?: BoardStorage | null;
@@ -235,6 +247,80 @@ function parseJsonLike(raw: string): unknown {
     return null;
   }
   return null;
+}
+
+function normalizeScenario(value: unknown, fallbackName: string): GherkinScenario {
+  const v = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const steps = Array.isArray(v.steps)
+    ? v.steps
+        .map((step): GherkinScenario["steps"][number] | null => {
+          if (!Array.isArray(step) || step.length < 2) return null;
+          const kw = String(step[0]);
+          if (kw !== "Given" && kw !== "When" && kw !== "Then" && kw !== "And") return null;
+          return [kw, String(step[1])];
+        })
+        .filter((step): step is GherkinScenario["steps"][number] => !!step)
+    : ([
+        ["Given", String(v.given ?? "the story is ready to refine")],
+        ["When", String(v.when ?? "the user performs the refined workflow")],
+        ["Then", String(v.then ?? "the expected outcome is observable")],
+        ...(v.and ? ([["And", String(v.and)]] as GherkinScenario["steps"]) : []),
+      ] as GherkinScenario["steps"]);
+  return {
+    name: cap(String(v.name ?? fallbackName)),
+    steps: steps.length > 0 ? steps : [["Then", fallbackName]],
+  };
+}
+
+function normalizeScenarios(value: unknown, fallbacks: string[]): GherkinScenario[] {
+  const arr = Array.isArray(value) ? value : [];
+  const scenarios = arr.map((item, i) => normalizeScenario(item, fallbacks[i] ?? `Scenario ${i + 1}`));
+  return scenarios.length > 0
+    ? scenarios.slice(0, 4)
+    : fallbacks.slice(0, 4).map((name) => normalizeScenario({ name }, name));
+}
+
+function criteriaFromScenarios(scenarios: GherkinScenario[]): string[] {
+  return scenarios.map((scenario) => scenario.name);
+}
+
+function fallbackTightenedScenarios(story: Story): GherkinScenario[] {
+  const seeds = (story.criteria.length ? story.criteria : [story.title]).slice(0, 4);
+  return seeds.map((criterion, i) => ({
+    name: cap(criterion),
+    steps: [
+      ["Given", `the user is working with ${story.wid}`],
+      ["When", `they complete ${criterion.toLowerCase()}`],
+      ["Then", `the UI shows a verifiable result for ${criterion.toLowerCase()}`],
+      ...(i === 0 ? ([ ["And", "no existing queue behavior regresses"] ] as GherkinScenario["steps"]) : []),
+    ],
+  }));
+}
+
+function refineTitlePart(title: string, part: number): string {
+  return /\(part \d+\)$/i.test(title) ? title.replace(/\(part \d+\)$/i, `(part ${part})`) : `${title} (part ${part})`;
+}
+
+function storyText(story: Story): string {
+  return [story.title, story.description, ...story.criteria, ...(story.scenarios?.map((s) => s.name) ?? [])]
+    .join(" ")
+    .toLowerCase();
+}
+
+function bestDeterministicOverlap(story: Story, siblings: Story[]): { story: Story; score: number } | null {
+  const title = story.title.trim().toLowerCase();
+  const words = new Set(storyText(story).split(/[^a-z0-9]+/).filter((w) => w.length > 3));
+  let best: { story: Story; score: number } | null = null;
+  for (const sibling of siblings) {
+    const siblingTitle = sibling.title.trim().toLowerCase();
+    let score = title && siblingTitle && title === siblingTitle ? 1 : 0;
+    const siblingWords = new Set(storyText(sibling).split(/[^a-z0-9]+/).filter((w) => w.length > 3));
+    const shared = [...words].filter((w) => siblingWords.has(w)).length;
+    const total = new Set([...words, ...siblingWords]).size || 1;
+    score = Math.max(score, shared / total);
+    if (score >= 0.34 && (!best || score > best.score)) best = { story: sibling, score };
+  }
+  return best;
 }
 
 function fallbackDraftProposals(kind: IntakeKind, text: string): IntakeDraftProposal[] {
@@ -815,6 +901,224 @@ export class BoardStore {
       exploreNote: model && !project ? "Attach a Fable session to enable model-backed drafting" : "deterministic fallback used",
       drafts: fallbackDraftProposals(args.kind, text),
     };
+  }
+
+  private smallerSize(size: Story["size"]): Story["size"] {
+    if (size === "XL") return "L";
+    if (size === "L") return "M";
+    return "S";
+  }
+
+  private storyProposalFromPart(story: Story, part: Record<string, unknown>, fallbackTitle: string): IntakeDraftProposal {
+    const title = cap(String(part.title ?? fallbackTitle));
+    const scenarios = normalizeScenarios(part.scenarios, [title]);
+    return {
+      include: true,
+      type: story.type,
+      title,
+      priority: story.priority,
+      size: this.smallerSize(story.size),
+      summary: String(part.summary ?? part.userStory ?? part.description ?? `Refined child story for ${story.title}.`),
+      description: String(part.userStory ?? part.description ?? story.description),
+      epic: story.epic,
+      taskClass: story.taskClass,
+      tags: story.tags,
+      criteria: criteriaFromScenarios(scenarios),
+      scenarios,
+      bug: story.type === "bug" ? story.bug : undefined,
+      slice: story.type === "slice" ? story.slice : undefined,
+    };
+  }
+
+  private localDraftFromProposal(proposal: IntakeDraftProposal, repo: string): Story {
+    const titleSlug = slug(proposal.title).slice(0, 40);
+    return {
+      id: `local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      wid: "W-000000",
+      type: proposal.type,
+      title: proposal.title,
+      repo,
+      branch: `draft/${titleSlug}`,
+      worktree: "",
+      column: "backlog",
+      priority: proposal.priority,
+      size: proposal.size,
+      epic: proposal.epic,
+      taskClass: proposal.taskClass,
+      tags: proposal.tags ?? [],
+      description: proposal.description,
+      criteria: proposal.criteria,
+      scenarios: proposal.scenarios,
+      draft: true,
+      issue: null,
+      bug: proposal.bug,
+      slice: proposal.slice,
+    };
+  }
+
+  private async saveStory(story: Story): Promise<Story> {
+    if (this.client && this.state.status === "connected") {
+      const result = await this.client.callTool(
+        { name: "story.save", arguments: { story } },
+        CallToolResultSchema
+      );
+      const saved = parseToolResult<Story>(result);
+      this.updateStoryAndDetail(saved);
+      return saved;
+    }
+    this.updateStoryAndDetail(story);
+    return story;
+  }
+
+  private async createRefineChildren(proposals: IntakeDraftProposal[], repo: string): Promise<Story[]> {
+    if (proposals.length === 0) return [];
+    if (this.state.project && this.client && this.state.status === "connected") {
+      return this.createDraftsFromProposals(proposals);
+    }
+    const stories = proposals.map((proposal) => this.localDraftFromProposal(proposal, repo));
+    this.reduce((state) => stories.reduce((s, story) => upsertStoryInState(s, story), state));
+    return stories;
+  }
+
+  private fallbackSplit(story: Story): { story: Story; child: IntakeDraftProposal } {
+    const criteria = story.criteria.length ? story.criteria : [`${story.title} works end to end`, "No existing behavior regresses"];
+    const midpoint = Math.max(1, Math.ceil(criteria.length / 2));
+    const firstCriteria = criteria.slice(0, midpoint);
+    const secondCriteria = criteria.slice(midpoint);
+    const childCriteria = secondCriteria.length ? secondCriteria : [`${story.title} follow-up path works end to end`];
+    return {
+      story: {
+        ...story,
+        title: refineTitlePart(story.title, 1),
+        size: this.smallerSize(story.size),
+        criteria: firstCriteria,
+        scenarios: fallbackTightenedScenarios({ ...story, criteria: firstCriteria }),
+      },
+      child: {
+        include: true,
+        type: story.type,
+        title: refineTitlePart(story.title, 2),
+        priority: story.priority,
+        size: this.smallerSize(story.size),
+        summary: `Deterministic split-out child story for ${story.title}.`,
+        description: story.description,
+        epic: story.epic,
+        taskClass: story.taskClass,
+        tags: story.tags,
+        criteria: childCriteria,
+        scenarios: fallbackTightenedScenarios({ ...story, title: refineTitlePart(story.title, 2), criteria: childCriteria }),
+        bug: story.type === "bug" ? story.bug : undefined,
+        slice: story.type === "slice" ? story.slice : undefined,
+      },
+    };
+  }
+
+  async refineStory(id: string, action: RefineAction): Promise<RefineResult> {
+    const story = this.state.stories[id] ?? await this.refreshStory(id);
+    if (!story) throw new Error(`Unknown story: ${id}`);
+    if (story.column !== "backlog") throw new Error("Only backlog stories can be refined");
+
+    const siblings = Object.values(this.state.stories).filter((s) => s.id !== story.id && s.repo === story.repo);
+    const canUseModel = !!(this.modelComplete && this.state.project);
+    let source: IntakeDraftSource = "fallback";
+    let note = "Deterministic fallback used.";
+    let saved: Story = story;
+    let children: Story[] = [];
+
+    if (action === "split") {
+      let split = this.fallbackSplit(story);
+      if (canUseModel && this.modelComplete) {
+        try {
+          const raw = await this.modelComplete({
+            system:
+              "You split an over-large user story into exactly 2 smaller, independently deliverable Gherkin stories. Output ONLY a JSON array of exactly 2 objects with title, userStory, summary, and scenarios [{name,given,when,then,and?}].",
+            max_tokens: 1200,
+            messages: [{ role: "user", content: `Story: ${story.title}\n${story.description}\nCriteria: ${JSON.stringify(story.criteria)}` }],
+          });
+          const parsed = parseJsonLike(raw);
+          const arr = Array.isArray(parsed) ? parsed : [];
+          if (arr.length >= 2) {
+            const first = (arr[0] && typeof arr[0] === "object" ? arr[0] : {}) as Record<string, unknown>;
+            const firstTitle = cap(String(first.title ?? refineTitlePart(story.title, 1)));
+            const firstScenarios = normalizeScenarios(first.scenarios, [firstTitle]);
+            split = {
+              story: {
+                ...story,
+                title: firstTitle,
+                description: String(first.userStory ?? first.description ?? story.description),
+                size: this.smallerSize(story.size),
+                criteria: criteriaFromScenarios(firstScenarios),
+                scenarios: firstScenarios,
+              },
+              child: this.storyProposalFromPart(story, arr[1] as Record<string, unknown>, refineTitlePart(story.title, 2)),
+            };
+            source = "model";
+            note = "Model split this story into two smaller drafts.";
+          }
+        } catch {
+          source = "fallback";
+        }
+      }
+      saved = await this.saveStory(split.story);
+      children = await this.createRefineChildren([split.child], story.repo);
+      if (source === "fallback") note = "Fallback used: split into deterministic part 1 and part 2 drafts.";
+      this.notify("success", `Split ${story.wid} into ${children.length + 1} stories`);
+    } else if (action === "tighten") {
+      let scenarios = fallbackTightenedScenarios(story);
+      if (canUseModel && this.modelComplete) {
+        try {
+          const raw = await this.modelComplete({
+            system:
+              "You rewrite acceptance criteria to be crisper and more testable. Output ONLY a JSON array of scenario objects: {name,given,when,then,and?}. Keep the same intent; make each step observable and specific.",
+            max_tokens: 1000,
+            messages: [{ role: "user", content: `Story: ${story.title}\nCurrent: ${JSON.stringify([...(story.scenarios?.map((s) => s.name) ?? []), ...story.criteria])}` }],
+          });
+          const parsed = parseJsonLike(raw);
+          const arr = Array.isArray(parsed) ? parsed : [];
+          if (arr.length > 0) {
+            scenarios = normalizeScenarios(arr, story.criteria.length ? story.criteria : [story.title]);
+            source = "model";
+            note = "Model tightened the acceptance criteria into testable scenarios.";
+          }
+        } catch {
+          source = "fallback";
+        }
+      }
+      saved = await this.saveStory({ ...story, criteria: criteriaFromScenarios(scenarios), scenarios });
+      if (source === "fallback") note = "Fallback used: criteria were converted into deterministic Given/When/Then scenarios.";
+      this.notify("success", `Tightened criteria for ${story.wid}`);
+    } else {
+      if (canUseModel && this.modelComplete) {
+        try {
+          const existing = siblings.map((s) => `${s.issue ?? s.wid} ${s.title}`).join("\n");
+          const raw = await this.modelComplete({
+            system:
+              "You check whether a candidate story duplicates any existing sibling story. Output ONLY JSON: {\"duplicate\":true|false,\"of\":\"matching issue or story\",\"reason\":\"one sentence\"}. Do not delete anything.",
+            max_tokens: 300,
+            messages: [{ role: "user", content: `Candidate: ${story.title}\n${story.description}\nExisting:\n${existing}` }],
+          });
+          const parsed = parseJsonLike(raw);
+          const obj = (Array.isArray(parsed) ? parsed[0] : parsed) as Record<string, unknown> | null;
+          if (obj) {
+            source = "model";
+            note = obj.duplicate
+              ? `Possible duplicate of ${String(obj.of ?? "an existing story")}${obj.reason ? ` — ${String(obj.reason)}` : ""}. Nothing was deleted.`
+              : `No duplicate found${obj.reason ? ` — ${String(obj.reason)}` : ""}. Nothing was deleted.`;
+          }
+        } catch {
+          source = "fallback";
+        }
+      }
+      if (source === "fallback") {
+        const overlap = bestDeterministicOverlap(story, siblings);
+        note = overlap
+          ? `Fallback used: possible overlap with ${overlap.story.issue ?? overlap.story.wid} “${overlap.story.title}” (${Math.round(overlap.score * 100)}% title/content similarity). Nothing was deleted.`
+          : "Fallback used: no exact or high-similarity sibling overlap found. Nothing was deleted.";
+      }
+      this.notify("info", `Checked duplicates for ${story.wid}`);
+    }
+
+    return { action, source, note, story: saved, children };
   }
 
   async createDraftsFromProposals(drafts: IntakeDraftProposal[]): Promise<Story[]> {
