@@ -1,8 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Story } from "arc-contracts";
+import { callTool, withDaemonClient } from "./daemon-client.js";
 
 /**
  * Filing agent — the deterministic bridge that completes the GitHub filing flow.
@@ -32,13 +30,6 @@ export interface FiledResult {
   id: string;
   wid: string;
   issue: string;
-}
-
-function parseToolResult<T>(result: unknown): T {
-  const r = result as { content?: Array<{ type: string; text?: string }> };
-  const text = r.content?.find((c) => c.type === "text")?.text;
-  if (!text) throw new Error("No text content in tool result");
-  return JSON.parse(text) as T;
 }
 
 /** Template a GitHub issue body from a draft story — deterministic, no model. */
@@ -80,16 +71,12 @@ export async function runFileAgent(opts: FileAgentOptions): Promise<FiledResult[
   const createIssue = opts.createIssue ?? ghCreateIssue;
   const log = opts.log ?? (() => undefined);
 
-  const transport = new StreamableHTTPClientTransport(new URL(opts.url));
-  const client = new Client({ name: "file-agent", version: "0.1.0" });
-  await client.connect(transport);
-
-  try {
-    const pendingResult = await client.callTool(
-      { name: "file.pending", arguments: opts.projectId ? { projectId: opts.projectId } : {} },
-      CallToolResultSchema
+  return withDaemonClient(opts.url, { name: "file-agent" }, async (client) => {
+    const pending = await callTool<Story[]>(
+      client,
+      "file.pending",
+      opts.projectId ? { projectId: opts.projectId } : {}
     );
-    const pending = parseToolResult<Story[]>(pendingResult);
     log(`${pending.length} draft(s) awaiting filing`);
 
     const filed: FiledResult[] = [];
@@ -100,17 +87,12 @@ export async function runFileAgent(opts: FileAgentOptions): Promise<FiledResult[
         continue;
       }
       const ref = await createIssue({ repo: story.repo, title: story.title, body });
-      await client.callTool(
-        { name: "story.file", arguments: { id: story.id, issue: ref.url } },
-        CallToolResultSchema
-      );
+      await callTool(client, "story.file", { id: story.id, issue: ref.url });
       log(`filed ${story.wid} → ${ref.url}`);
       filed.push({ id: story.id, wid: story.wid, issue: ref.url });
     }
     return filed;
-  } finally {
-    await client.close();
-  }
+  });
 }
 
 // CLI: node mcp-server/dist/file-agent.js [--url <u>] [--project <id>] [--dry-run]

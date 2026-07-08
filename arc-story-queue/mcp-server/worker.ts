@@ -1,10 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Access, Handoff, Project, RouteId, RunRecord, Story } from "arc-contracts";
+import { callTool, createDaemonClient, localBranch, localRepoId, runGit } from "./daemon-client.js";
 
 /**
  * Deterministic story worker.
@@ -29,43 +27,6 @@ export interface WorkerOptions {
 export interface WorkerResult {
   processed: number;
   stories: Array<{ id: string; wid: string; pr: string }>;
-}
-
-type ToolResult = { content?: Array<{ type: string; text?: string }> };
-
-function parseToolResult<T>(result: unknown): T {
-  const r = result as ToolResult;
-  const text = r.content?.find((c) => c.type === "text")?.text;
-  if (!text) throw new Error("No text content in tool result");
-  return JSON.parse(text) as T;
-}
-
-function runGit(cwd: string, args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-}
-
-function localRepoId(cwd: string): string {
-  try {
-    const remote = runGit(cwd, ["remote", "get-url", "origin"]);
-    const match = remote.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/);
-    if (match) return match[1];
-  } catch {
-    // Fall back to ownerless local repo id below.
-  }
-  return `local/${basename(resolve(cwd))}`;
-}
-
-function localBranch(cwd: string): string {
-  try {
-    return runGit(cwd, ["branch", "--show-current"]) || "main";
-  } catch {
-    return "main";
-  }
-}
-
-async function callTool<T>(client: Client, name: string, args: Record<string, unknown> = {}): Promise<T> {
-  const result = await client.callTool({ name, arguments: args }, CallToolResultSchema);
-  return parseToolResult<T>(result);
 }
 
 async function streamLine(
@@ -221,8 +182,7 @@ async function processStory(client: Client, story: Story, now: () => number): Pr
 export async function runWorker(opts: WorkerOptions): Promise<WorkerResult> {
   const log = opts.log ?? (() => undefined);
   const now = opts.now ?? Date.now;
-  const transport = new StreamableHTTPClientTransport(new URL(opts.url));
-  const client = new Client({ name: "story-queue-worker", version: "0.1.0" });
+  const { client, transport } = createDaemonClient(opts.url, { name: "story-queue-worker" });
   await client.connect(transport);
 
   try {
