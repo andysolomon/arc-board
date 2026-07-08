@@ -1,5 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync, realpathSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createServer, type Server } from "node:http";
 import type { NextFunction, Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -7,7 +10,7 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { AnnotateOutcome, Handoff, IntakeDraftProposal, Plan, RunRecord, Story } from "arc-contracts";
+import type { AnnotateOutcome, FsDirListing, Handoff, IntakeDraftProposal, Plan, RunRecord, Story } from "arc-contracts";
 import { IntakeManager } from "./intake.js";
 import { QueueManager } from "./queue.js";
 import { SessionRegistry } from "./registry.js";
@@ -22,6 +25,7 @@ export interface DaemonOptions {
   worktreeRoot?: string;
   maxParallel?: number;
   prReconcileIntervalMs?: number;
+  fsRoot?: string;
 }
 
 export interface DaemonHandle {
@@ -52,6 +56,56 @@ function assertGitRepoPath(path: string): void {
   throw new Error(`Repository path is unavailable or is not a git repo: ${path}`);
 }
 
+function expandHome(path: string): string {
+  if (path === "~") return homedir();
+  if (path.startsWith("~/") || path.startsWith("~\\")) return join(homedir(), path.slice(2));
+  return path;
+}
+
+function isWithinRoot(root: string, path: string): boolean {
+  const rel = relative(root, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function resolvePathInsideRoot(path: string, root: string): string {
+  const rootReal = realpathSync(expandHome(root));
+  const requested = path.trim() ? expandHome(path.trim()) : rootReal;
+  const candidate = isAbsolute(requested) ? requested : resolve(rootReal, requested);
+  let real: string;
+  try {
+    real = realpathSync(candidate);
+  } catch {
+    throw new Error(`Directory path is unavailable: ${path || rootReal}`);
+  }
+  if (!isWithinRoot(rootReal, real)) {
+    throw new Error(`Directory path is outside the allowed root: ${path || real}`);
+  }
+  return real;
+}
+
+function listDir(path: string, root: string): FsDirListing {
+  const rootReal = realpathSync(expandHome(root));
+  const dir = resolvePathInsideRoot(path, rootReal);
+  if (!statSync(dir).isDirectory()) throw new Error(`Path is not a directory: ${path}`);
+
+  const parentCandidate = dirname(dir);
+  const parent = parentCandidate !== dir && isWithinRoot(rootReal, parentCandidate) ? parentCandidate : null;
+  const entries = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+    .map((entry) => {
+      const entryPath = join(dir, entry.name);
+      return {
+        name: entry.name,
+        path: entryPath,
+        isDir: true,
+        isGitRepo: existsSync(join(entryPath, ".git")),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { path: dir, parent, entries };
+}
+
 function createSharedContext(opts: DaemonOptions) {
   const store = new StoryStore(opts.dbPath ?? ":memory:", opts.maxParallel ?? 2);
   const registry = new SessionRegistry();
@@ -64,11 +118,12 @@ function createSharedContext(opts: DaemonOptions) {
     { store, registry, sse }
   );
   const intake = new IntakeManager({ store });
-  return { store, registry, sse, queue, intake };
+  const fsRoot = opts.fsRoot ?? process.env.ARC_BOARD_FS_ROOT ?? homedir();
+  return { store, registry, sse, queue, intake, fsRoot };
 }
 
 function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedContext>): void {
-  const { queue, intake, registry, store, sse } = ctx;
+  const { queue, intake, registry, store, sse, fsRoot } = ctx;
 
   server.registerTool(
     "session.register",
@@ -390,6 +445,16 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       inputSchema: { path: z.string() },
     },
     async ({ path }) => jsonResult(deriveRepoId(path))
+  );
+
+  server.registerTool(
+    "fs.listDir",
+    {
+      title: "List directories",
+      description: "List visible child directories on the daemon host within the configured filesystem root.",
+      inputSchema: { path: z.string().optional().default("") },
+    },
+    async ({ path }) => jsonResult(listDir(path ?? "", fsRoot))
   );
 
   server.registerTool(
