@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/andysolomon/arc-board/compare/v1.4.0...v1.5.0) (2026-07-08)
+
+
+### Features
+
+* **w-000012:** route app mcp through tauri http ([#32](https://github.com/andysolomon/arc-board/issues/32)) ([a28969f](https://github.com/andysolomon/arc-board/commit/a28969fc2a3d1375022e353bbfec2b70c7a5816d)), closes [#12](https://github.com/andysolomon/arc-board/issues/12)
+
 # [1.4.0](https://github.com/andysolomon/arc-board/compare/v1.3.0...v1.4.0) (2026-07-08)
 
 
