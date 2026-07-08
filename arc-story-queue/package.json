@@ -17,7 +17,7 @@
     "fable:update": "npm run build && node mcp-server/dist/fable-pull-loop.js update",
     "fable:complete": "npm run build && node mcp-server/dist/fable-pull-loop.js complete",
     "import": "npm run build && node --experimental-sqlite mcp-server/dist/import-cli.js",
-    "test": "npm run build && node --experimental-sqlite ./node_modules/vitest/vitest.mjs run"
+    "test": "npm run build && node --experimental-sqlite ./node_modules/vitest/vitest.mjs run && npm test -w arc-story-queue-app"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

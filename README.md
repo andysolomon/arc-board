@@ -9,24 +9,24 @@ Three logical packages, dependency arrow points **toward** the orchestrator — 
 | Package | What it is | Depends on |
 |---|---|---|
 | `arc-orchestrator` | Existing Claude Code plugin (delegation, routes, lock rules) | — |
-| `arc-contracts` | Shared schema: handoff, routes, story, run record | — |
-| `arc-story-queue` | MCP server + desktop app (this prototype) | `arc-contracts` |
+| `arc-story-queue/packages/arc-contracts` | Shared schema: handoff, routes, story, run record | — |
+| `arc-story-queue` | MCP server + Vite web app (this prototype) | `arc-contracts` workspace package |
 
-Start `arc-story-queue` as a **new repo** that depends on `arc-orchestrator` via the extracted `arc-contracts`. Promote to a monorepo (`apps/`, `packages/`) only if the contract starts churning in lockstep with consumers. Never nest the app inside the plugin repo.
+The `arc-contracts` workspace package under `arc-story-queue/packages/` is the single source of truth for shared types and JSON Schemas. The historical root-level handoff copy has been removed to avoid schema drift. Never make `arc-orchestrator` depend on the app.
 
 ## Form factor
 
 Build the **engine as a headless local service** (MCP server + worktree/lock manager + session discovery). The Kanban is one client of it:
 
-- **Desktop (primary)** — Tauri app; full board, drawers, live worker terminals, observability. Needs the local filesystem for git worktrees + spawning agents.
+- **Web (primary v1)** — React + Vite app; full board, drawers, live worker terminals, observability.
+- **Desktop (deferred v2)** — Tauri shell for local filesystem integrations around git worktrees + spawning agents.
 - **TUI (secondary)** — in-terminal "what's running / dispatch next / tail a run".
-- **Web (read-mostly)** — remote dashboard over a tunnel; approve drafts, reorder, monitor.
 
 ## What's in this handoff
 
 - `DESIGN_SYSTEM.md` + `tokens.css` + `tokens.json` — the visual language of the prototype.
-- `arc-contracts/` — TypeScript types + JSON Schemas for the shared seam.
-- `arc-story-queue/` — MCP server stubs, queue/worktree/lock manager stub, app notes.
+- `arc-story-queue/packages/arc-contracts/` — TypeScript types + JSON Schemas for the shared seam.
+- `arc-story-queue/` — npm workspace containing the MCP server, queue/worktree/lock manager, and Vite app.
 - `BUILD_PROMPT.md` — paste into Claude Code to scaffold the project.
 
 The working UI prototype (`Story Queue.dc.html`) is the source of truth for layout and interaction.
