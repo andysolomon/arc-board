@@ -198,10 +198,17 @@ function defaultStorage(): BoardStorage | null {
 }
 
 function parseToolResult<T>(result: unknown): T {
-  const r = result as { content?: Array<{ type: string; text?: string }> };
+  const r = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
   const text = r.content?.find((c) => c.type === "text")?.text;
+  if (r.isError) throw new Error(text ?? "MCP tool returned an error");
   if (!text) throw new Error("No text content in tool result");
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Non-JSON payload (e.g. a raw daemon error) — surface the text itself
+    // instead of a misleading "JSON Parse error".
+    throw new Error(text);
+  }
 }
 
 function defaultModelComplete(): ModelComplete | null {
