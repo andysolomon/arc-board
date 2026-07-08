@@ -1,3 +1,15 @@
+# [1.2.0](https://github.com/andysolomon/arc-board/compare/v1.1.0...v1.2.0) (2026-07-08)
+
+
+### Bug Fixes
+
+* add pointer board drag-and-drop (W-000014) ([07701c6](https://github.com/andysolomon/arc-board/commit/07701c69a8b1b618402c7ebb28a2151a8512445d))
+
+
+### Features
+
+* add agent-backed intake proposals ([c746a55](https://github.com/andysolomon/arc-board/commit/c746a5504db9d0f8c7de0fd6518cd9a46218fec1))
+
 # [1.1.0](https://github.com/andysolomon/arc-board/compare/v1.0.1...v1.1.0) (2026-07-07)
 
 
