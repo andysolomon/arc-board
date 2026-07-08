@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/andysolomon/arc-board/compare/v1.8.0...v1.9.0) (2026-07-08)
+
+
+### Features
+
+* drag in-progress stories to review, open PRs, and hardening fixes ([#36](https://github.com/andysolomon/arc-board/issues/36)) ([f8eb01d](https://github.com/andysolomon/arc-board/commit/f8eb01d816e28eae8a7b9bcec77daf6cbc0186c1))
+
 # [1.8.0](https://github.com/andysolomon/arc-board/compare/v1.7.0...v1.8.0) (2026-07-08)
 
 
