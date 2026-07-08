@@ -127,6 +127,19 @@ export interface Project {
   status: "attached" | "detached";
 }
 
+export interface FsDirEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  isGitRepo: boolean;
+}
+
+export interface FsDirListing {
+  path: string;
+  parent: string | null;
+  entries: FsDirEntry[];
+}
+
 /** Parallelism law enforced by the queue manager. */
 export const PARALLELISM = {
   readOnlyRunsInParallel: true,           // explore/check/review never lock

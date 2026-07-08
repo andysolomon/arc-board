@@ -2,6 +2,7 @@ import type {
   Access,
   AppConfig,
   Column,
+  FsDirListing,
   GherkinScenario,
   IntakeDraftProposal,
   IntakeDraftSource,
@@ -863,6 +864,16 @@ export class BoardStore {
     const client = this.ensureClient();
     const result = await client.callTool({ name: "project.discover", arguments: {} }, CallToolResultSchema);
     return parseToolResult<Project[]>(result);
+  }
+
+  /** List daemon-host directories within the daemon's allowed filesystem root. */
+  async listDir(path = ""): Promise<FsDirListing> {
+    const client = this.ensureClient();
+    const result = await client.callTool(
+      { name: "fs.listDir", arguments: { path } },
+      CallToolResultSchema
+    );
+    return parseToolResult<FsDirListing>(result);
   }
 
   /** Derive owner/name from a local repo's git origin remote (empty if none). */

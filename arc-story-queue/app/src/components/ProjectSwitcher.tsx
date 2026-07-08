@@ -1,22 +1,153 @@
 import { useEffect, useState } from "react";
-import type { Project } from "arc-contracts";
+import type { FsDirListing, Project } from "arc-contracts";
 import type { BoardStore } from "../lib/boardStore";
+import { useDialog } from "../lib/useDialog";
 
 function projectSubline(project: Pick<Project, "path" | "branch" | "model">): string {
   return `${project.path} · ${project.branch} · ${project.model}`;
 }
 
+function pathCrumbs(path: string): Array<{ label: string; path: string }> {
+  const normalized = path.replace(/\\/g, "/");
+  const drive = normalized.match(/^[A-Za-z]:\//)?.[0] ?? "";
+  const rest = drive ? normalized.slice(drive.length) : normalized;
+  const absolute = rest.startsWith("/") || Boolean(drive);
+  const parts = rest.split("/").filter(Boolean);
+  const crumbs: Array<{ label: string; path: string }> = [];
+  let current = drive || (absolute ? "/" : "");
+
+  if (absolute) crumbs.push({ label: drive || "/", path: current });
+  for (const part of parts) {
+    current = current === "/" || current === drive ? `${current}${part}` : current ? `${current}/${part}` : part;
+    crumbs.push({ label: part, path: current });
+  }
+  return crumbs.length ? crumbs : [{ label: path || "Home", path }];
+}
+
+function DirectoryPicker({
+  listing,
+  busy,
+  error,
+  onOpen,
+  onSelect,
+  onClose,
+}: {
+  listing: FsDirListing | null;
+  busy: boolean;
+  error: string | null;
+  onOpen(path: string): void;
+  onSelect(path: string): void;
+  onClose(): void;
+}) {
+  const dialogRef = useDialog<HTMLDivElement>(onClose);
+  const crumbs = listing ? pathCrumbs(listing.path) : [];
+
+  return (
+    <>
+      <div className="sq-dir-picker__scrim" onClick={onClose} />
+      <div
+        ref={dialogRef}
+        className="sq-dir-picker"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Browse daemon host folders"
+        tabIndex={-1}
+      >
+        <div className="sq-modal__head">
+          <div>
+            <h2 className="sq-modal__title">Choose a repo folder</h2>
+            <div className="sq-modal__sub">Browsing directories on the daemon host.</div>
+          </div>
+          <button type="button" className="sq-drawer__close" aria-label="Close folder picker" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <div className="sq-dir-picker__crumbs" aria-label="Current folder">
+          {crumbs.length === 0 ? (
+            <span className="sq-dir-picker__crumb">Loading…</span>
+          ) : (
+            crumbs.map((crumb, index) => (
+              <span key={`${crumb.path}-${index}`} className="sq-dir-picker__crumb-wrap">
+                {index > 0 && <span className="sq-dir-picker__sep">/</span>}
+                <button
+                  type="button"
+                  className="sq-dir-picker__crumb"
+                  onClick={() => onOpen(crumb.path)}
+                  disabled={busy}
+                >
+                  {crumb.label}
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+
+        <div className="sq-dir-picker__toolbar">
+          <button type="button" className="btn btn--secondary" onClick={() => onOpen("")} disabled={busy}>
+            Home
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={() => listing?.parent && onOpen(listing.parent)}
+            disabled={busy || !listing?.parent}
+          >
+            Up
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => listing && onSelect(listing.path)}
+            disabled={busy || !listing}
+          >
+            Select this folder
+          </button>
+        </div>
+
+        {error && <div className="connect-bar__error sq-dir-picker__error">{error}</div>}
+
+        <div className="sq-dir-picker__list sq-scroll" role="list" aria-busy={busy}>
+          {busy && <div className="sq-empty">Loading folders…</div>}
+          {!busy && listing && listing.entries.length === 0 && <div className="sq-empty">No folders here</div>}
+          {!busy &&
+            listing?.entries.map((entry) => (
+              <button
+                type="button"
+                role="listitem"
+                key={entry.path}
+                className="sq-dir-picker__row"
+                onClick={() => onOpen(entry.path)}
+                onDoubleClick={() => onOpen(entry.path)}
+              >
+                <span className="sq-dir-picker__folder" aria-hidden>
+                  📁
+                </span>
+                <span className="sq-dir-picker__name">{entry.name}</span>
+                {entry.isGitRepo && <span className="sq-dir-picker__repo-badge">Git repo</span>}
+              </button>
+            ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function ProjectSwitcher({ store }: { store: BoardStore }) {
   const [open, setOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const [dirListing, setDirListing] = useState<FsDirListing | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape" && !pickerOpen) setOpen(false);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, pickerOpen]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [discovered, setDiscovered] = useState<Project[]>([]);
@@ -119,7 +250,7 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
     }
   }
 
-  // Native directory picker — desktop (Tauri) only; the web build can't read FS paths.
+  // Native directory picker for desktop; daemon-backed picker for the browser build.
   const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   async function browse() {
     setError(null);
@@ -133,6 +264,41 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  async function loadDirectory(path: string) {
+    setPickerBusy(true);
+    setPickerError(null);
+    try {
+      if (store.getState().status !== "connected") await store.connect();
+      setDirListing(await store.listDir(path));
+    } catch (err) {
+      setPickerError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPickerBusy(false);
+    }
+  }
+
+  function openWebPicker() {
+    setPickerOpen(true);
+    setDirListing(null);
+    void loadDirectory(repoPath.trim());
+  }
+
+  async function selectDirectory(path: string) {
+    setRepoPath(path);
+    setPickerBusy(true);
+    try {
+      await fillRepoIdFrom(path);
+      setPickerOpen(false);
+    } finally {
+      setPickerBusy(false);
+    }
+  }
+
+  function closePicker() {
+    setPickerOpen(false);
+    setPickerError(null);
   }
 
   return (
@@ -234,16 +400,14 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
                   placeholder="/path/to/repo"
                   disabled={busy}
                 />
-                {isTauri && (
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
-                    onClick={() => void browse()}
-                    disabled={busy}
-                  >
-                    Browse…
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => (isTauri ? void browse() : openWebPicker())}
+                  disabled={busy}
+                >
+                  Browse…
+                </button>
               </div>
             </label>
             <label className="sq-field">
@@ -265,6 +429,17 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
             </button>
             {error && <div className="connect-bar__error">{error}</div>}
           </div>
+
+          {pickerOpen && (
+            <DirectoryPicker
+              listing={dirListing}
+              busy={pickerBusy}
+              error={pickerError}
+              onOpen={(path) => void loadDirectory(path)}
+              onSelect={(path) => void selectDirectory(path)}
+              onClose={closePicker}
+            />
+          )}
         </>
       )}
     </div>
