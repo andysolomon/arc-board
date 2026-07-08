@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/andysolomon/arc-board/compare/v1.2.0...v1.3.0) (2026-07-08)
+
+
+### Features
+
+* **app:** add activity timeline view ([066960f](https://github.com/andysolomon/arc-board/commit/066960f40a63ee63a9164f34a4c4b68a71256833))
+
 # [1.2.0](https://github.com/andysolomon/arc-board/compare/v1.1.0...v1.2.0) (2026-07-08)
 
 
