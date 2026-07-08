@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/andysolomon/arc-board/compare/v1.6.0...v1.7.0) (2026-07-08)
+
+
+### Features
+
+* add multi-project switching and all scope ([#34](https://github.com/andysolomon/arc-board/issues/34)) ([518c26c](https://github.com/andysolomon/arc-board/commit/518c26c06663f516b4217911ab6beb9be1e71cd7)), closes [#18](https://github.com/andysolomon/arc-board/issues/18)
+
 # [1.6.0](https://github.com/andysolomon/arc-board/compare/v1.5.0...v1.6.0) (2026-07-08)
 
 
