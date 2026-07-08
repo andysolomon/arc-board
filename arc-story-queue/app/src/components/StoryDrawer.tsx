@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { Handoff, RunRecord, Story, StoryDetail } from "arc-contracts";
 import type { BoardStore, RefineAction } from "../lib/boardStore";
 import {
@@ -13,6 +13,7 @@ import {
   type WorkerLane,
 } from "../lib/boardStore";
 import { useDialog } from "../lib/useDialog";
+import { buildContractRows } from "../lib/delegationContract";
 
 interface StoryDrawerProps {
   store: BoardStore;
@@ -207,26 +208,19 @@ function prLabel(pr?: string | null): string | null {
 }
 
 function DelegationContract({ story }: { story: Story }) {
-  const invariants = [story.issue ? `Preserve GitHub link ${story.issue}` : null, ...story.criteria]
-    .filter(Boolean)
-    .slice(0, 3)
-    .join(" · ");
-  const verification = story.plan?.testStrategy || story.criteria[0] || "Verify the accepted behavior before handoff.";
-  const rows = [
-    ["Outcome", story.description || story.title],
-    ["Scope", [story.repo, story.branch, story.worktree].filter(Boolean).join(" · ") || "Story-scoped repository changes only"],
-    ["Invariants", invariants || "No unrelated queue, board, or daemon behavior regresses."],
-    ["Verification", verification],
-    ["Prohibited", "No unrelated rewrites, hidden empty sections, or overflow-prone drawer content."],
-  ] as const;
+  const rows = buildContractRows(story);
 
   return (
     <Section label="Delegation contract">
       <div className="sq-contract-grid">
-        {rows.map(([label, value]) => (
-          <div key={label} className="sq-contract-row">
-            <div className="sq-contract-row__label">{label}</div>
-            <div className="sq-contract-row__value">{value}</div>
+        {rows.map((row) => (
+          <div
+            key={row.slug}
+            className={`sq-contract-row sq-contract-row--${row.slug}`}
+            style={{ "--sq-contract-c": row.color } as CSSProperties}
+          >
+            <div className="sq-contract-row__label">{row.label}</div>
+            <div className="sq-contract-row__value">{row.value}</div>
           </div>
         ))}
       </div>

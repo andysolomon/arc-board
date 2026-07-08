@@ -986,16 +986,17 @@ body {
 }
 .sq-list { margin: 0; padding-left: var(--sq-5); font-size: 12.5px; color: var(--sq-text-2); line-height: 1.6; }
 .sq-contract-grid {
-  display: grid; overflow: hidden; border: 1px solid var(--sq-border-soft);
-  border-radius: var(--sq-r-card); background: rgba(255, 255, 255, 0.025);
+  display: flex; flex-direction: column; gap: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--sq-r-card);
+  background: rgba(0, 0, 0, 0.22); padding: 14px 16px;
 }
-.sq-contract-row { display: grid; grid-template-columns: 126px 1fr; border-top: 1px solid var(--sq-border-soft); }
-.sq-contract-row:first-child { border-top: none; }
+.sq-contract-row { display: flex; gap: 10px; }
 .sq-contract-row__label {
-  padding: var(--sq-3) var(--sq-4); font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--sq-text-4); background: rgba(255, 255, 255, 0.025);
+  flex: none; width: 88px; padding-top: 1px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--sq-contract-c, var(--sq-text-4));
 }
-.sq-contract-row__value { padding: var(--sq-3) var(--sq-4); font-size: 12.5px; color: var(--sq-text-2); line-height: 1.5; }
+.sq-contract-row__value { flex: 1; font-size: 12.5px; color: var(--sq-text-2); line-height: 1.5; }
 .sq-plan-block { margin-top: var(--sq-4); }
 .sq-plan-block:first-child { margin-top: 0; }
 .sq-plan-block__label { margin-bottom: var(--sq-2); font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sq-text-4); }
