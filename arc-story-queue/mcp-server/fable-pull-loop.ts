@@ -4,7 +4,7 @@ import { basename, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { Handoff, Project, RunRecord, Story } from "arc-contracts";
+import type { AnnotateOutcome, Handoff, Project, RunRecord, Story } from "arc-contracts";
 
 /**
  * Fable pull-loop glue.
@@ -48,7 +48,7 @@ export interface FableCompleteOptions {
   handoff: Handoff;
   pr: string;
   runs: RunRecord[];
-  outcome?: "accepted" | "escalated";
+  outcome?: AnnotateOutcome;
 }
 
 type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean };
@@ -276,7 +276,7 @@ if (invokedAsCli) {
         pr,
         handoff: readJsonFile<Handoff>(handoffPath),
         runs: readJsonFile<RunRecord[]>(runsPath),
-        outcome: (getArg(args, "--outcome") as "accepted" | "escalated" | undefined) ?? "accepted",
+        outcome: (getArg(args, "--outcome") as AnnotateOutcome | undefined) ?? "accepted",
       });
       console.log(JSON.stringify({ ok: true }));
       return;

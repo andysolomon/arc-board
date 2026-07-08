@@ -7,7 +7,7 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { Handoff, IntakeDraftProposal, Plan, RunRecord, Story } from "arc-contracts";
+import type { AnnotateOutcome, Handoff, IntakeDraftProposal, Plan, RunRecord, Story } from "arc-contracts";
 import { IntakeManager } from "./intake.js";
 import { QueueManager } from "./queue.js";
 import { SessionRegistry } from "./registry.js";
@@ -160,7 +160,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         handoff: z.custom<Handoff>(),
         pr: z.string(),
         runs: z.array(z.custom<RunRecord>()),
-        outcome: z.enum(["accepted", "escalated"]),
+        outcome: z.enum(["accepted", "rejected", "blocked", "verification-failed", "escalated"]) as z.ZodType<AnnotateOutcome>,
       },
     },
     async (args) => {

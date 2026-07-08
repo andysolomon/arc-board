@@ -9,11 +9,18 @@ export type Severity = "S1" | "S2" | "S3" | "S4";
 
 export type RouteId =
   | "codex-explore"
+  | "composer-explore"
+  | "opus-explore"
   | "composer-implement"
   | "codex-implement"
+  | "opus-implement"
   | "codex-check"
-  | "opus-review"
+  | "composer-check"
+  | "opus-check"
   | "fable";
+
+export type AnnotateOutcome = "accepted" | "rejected" | "blocked" | "verification-failed" | "escalated";
+export type RunOutcome = AnnotateOutcome | "unrated";
 
 export type Access = "read-only" | "write" | "parent";
 
@@ -75,7 +82,7 @@ export interface Story {
   issue?: string | null;        // "#215" once filed through Fable
   pr?: string | null;
   prState?: "open" | "merged";
-  annotation?: "accepted" | "escalated";
+  annotation?: AnnotateOutcome;
   plan?: Plan | null;
   bug?: BugDetail;
   slice?: SliceDetail;
@@ -105,7 +112,7 @@ export interface RunRecord {
   durMs: number;
   status: "completed" | "failed";
   changed: number;              // files changed
-  outcome: "accepted" | "escalated" | "rejected" | "unrated";
+  outcome: RunOutcome;
 }
 
 /** An attached, already-running agent session = a project. */

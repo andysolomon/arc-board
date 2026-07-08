@@ -68,9 +68,20 @@ afterEach(() => {
 describe("QueueManager parallelism law", () => {
   it("read-only routes never lock", () => {
     const { queue } = makeQueue();
-    expect(queue.needsWriteLock("codex-explore")).toBe(false);
-    expect(queue.acquireForRoute("/wt/a", "s1", "codex-explore")).toBe(true);
-    expect(queue.isWriteLocked("/wt/a")).toBe(false);
+    const readOnlyRoutes = [
+      "codex-explore",
+      "composer-explore",
+      "opus-explore",
+      "codex-check",
+      "composer-check",
+      "opus-check",
+    ];
+
+    for (const route of readOnlyRoutes) {
+      expect(queue.needsWriteLock(route)).toBe(false);
+      expect(queue.acquireForRoute("/wt/a", "s1", route)).toBe(true);
+      expect(queue.isWriteLocked("/wt/a")).toBe(false);
+    }
   });
 
   it("second acquireWrite on the same worktree fails fast", () => {
