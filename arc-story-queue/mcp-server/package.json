@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --experimental-sqlite dist/index.js",
     "worker": "node dist/worker.js",
+    "arc-worker": "node dist/arc-worker.js",
     "fable:pull": "node dist/fable-pull-loop.js pull",
     "fable:update": "node dist/fable-pull-loop.js update",
     "fable:complete": "node dist/fable-pull-loop.js complete"

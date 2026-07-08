@@ -184,6 +184,25 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "story.block",
+    {
+      title: "Block story",
+      description: "Attach a blocked/failed handoff, release the worker lock, and keep the card visible for human recovery.",
+      inputSchema: {
+        id: z.string(),
+        handoff: z.custom<Handoff>(),
+        outcome: z.enum(["blocked", "verification-failed", "escalated"]),
+      },
+    },
+    async (args) => {
+      const r = await queue.block(args);
+      const s = store.getStory(args.id);
+      if (s) void sse.emitEvent({ kind: "escalated", id: s.id, wid: s.wid, title: s.title, column: s.column });
+      return jsonResult(r);
+    }
+  );
+
+  server.registerTool(
     "story.review",
     {
       title: "Send story to review",
