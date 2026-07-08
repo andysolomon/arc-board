@@ -1,3 +1,10 @@
+## [1.16.2](https://github.com/andysolomon/arc-board/compare/v1.16.1...v1.16.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* remove faux macOS window controls from titlebar (W-000025) ([#66](https://github.com/andysolomon/arc-board/issues/66)) ([8271ac4](https://github.com/andysolomon/arc-board/commit/8271ac4a8fc532325a6277d6a12dc52d638a58ee)), closes [#63](https://github.com/andysolomon/arc-board/issues/63)
+
 ## [1.16.1](https://github.com/andysolomon/arc-board/compare/v1.16.0...v1.16.1) (2026-07-08)
 
 
