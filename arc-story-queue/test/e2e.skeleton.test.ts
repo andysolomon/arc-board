@@ -46,6 +46,7 @@ describe("walking skeleton E2E", () => {
   let fixtureDir: string;
   let worktreeRoot: string;
   const sseUpdates: Array<{ id: string; line?: { text: string } }> = [];
+  const lifecycleEvents: Array<{ kind: string; id: string; column?: string }> = [];
 
   beforeAll(async () => {
     fixtureDir = mkdtempSync(join(tmpdir(), "arc-sq-fixture-"));
@@ -71,8 +72,9 @@ describe("walking skeleton E2E", () => {
       const raw = notification.params?.data;
       if (typeof raw !== "string") return;
       try {
-        const parsed = JSON.parse(raw) as { type?: string; id: string; line?: { text: string } };
+        const parsed = JSON.parse(raw) as { type?: string; kind?: string; id: string; column?: string; line?: { text: string } };
         if (parsed.type === "story.update") sseUpdates.push(parsed);
+        if (parsed.type === "story.event" && parsed.kind) lifecycleEvents.push(parsed);
       } catch {
         // ignore non-JSON log lines
       }
@@ -128,6 +130,9 @@ describe("walking skeleton E2E", () => {
     expect(existsSync(inProgress!.worktree)).toBe(true);
     expect(daemon.queue.isWriteLocked(inProgress!.worktree)).toBe(true);
     expect(daemon.queue.writeLockHolder(inProgress!.worktree)).toBe(story.id);
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(lifecycleEvents).toContainEqual(expect.objectContaining({ kind: "started", id: story.id, column: "in_progress" }));
 
     const lines = ["line one", "line two", "line three"];
     for (const text of lines) {
@@ -189,6 +194,9 @@ describe("walking skeleton E2E", () => {
       },
       CallToolResultSchema
     );
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(lifecycleEvents).toContainEqual(expect.objectContaining({ kind: "review", id: story.id, column: "review" }));
 
     const done = await daemon.store.getStory(story.id);
     expect(done?.column).toBe("review");
