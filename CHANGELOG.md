@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/andysolomon/arc-board/compare/v1.7.0...v1.8.0) (2026-07-08)
+
+
+### Features
+
+* align W-000019 liquid-glass shell with prototype ([#35](https://github.com/andysolomon/arc-board/issues/35)) ([272f9a5](https://github.com/andysolomon/arc-board/commit/272f9a52f39904a0c78a4f895954f880dd066ae1)), closes [#19](https://github.com/andysolomon/arc-board/issues/19)
+
 # [1.7.0](https://github.com/andysolomon/arc-board/compare/v1.6.0...v1.7.0) (2026-07-08)
 
 
