@@ -86,11 +86,6 @@ export function AppShell({ store }: AppShellProps) {
   return (
     <div className="sq-shell">
       <div className="sq-titlebar">
-        <div className="sq-traffic" aria-hidden>
-          <span className="sq-traffic__dot sq-traffic__dot--r" />
-          <span className="sq-traffic__dot sq-traffic__dot--y" />
-          <span className="sq-traffic__dot sq-traffic__dot--g" />
-        </div>
         <div className="sq-titlebar__brand">
           <div className="sq-titlebar__mark" aria-hidden>⌘</div>
           <span className="sq-titlebar__name">Story Queue</span>

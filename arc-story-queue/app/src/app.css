@@ -1268,13 +1268,7 @@ body {
 .sq-note--info .sq-note__dot { background: var(--sq-accent); }
 .sq-note__msg { flex: 1; min-width: 0; }
 
-/* ── Titlebar chrome: traffic lights + project switcher ────────────── */
-.sq-traffic { display: flex; gap: 8px; padding-right: var(--sq-2); }
-.sq-traffic__dot { width: 12px; height: 12px; border-radius: 50%; }
-.sq-traffic__dot--r { background: #ff5f57; }
-.sq-traffic__dot--y { background: #febc2e; }
-.sq-traffic__dot--g { background: #28c840; }
-
+/* ── Titlebar chrome: project switcher ─────────────────────────────── */
 .sq-switcher { position: relative; }
 .sq-switcher__btn {
   display: inline-flex; align-items: center; gap: var(--sq-2);
