@@ -1,3 +1,4 @@
+import type { PointerEvent as ReactPointerEvent } from "react";
 import type { BoardStory } from "../lib/boardStore";
 import { hasLiveWorker, priorityColor, routeColor, routeLabel } from "../lib/boardStore";
 
@@ -6,9 +7,7 @@ interface StoryCardProps {
   queueIndex?: number;
   onEnqueue?: (id: string) => void;
   onOpen?: (id: string) => void;
-  onDragStart?: (id: string) => void;
-  onDropBefore?: (id: string) => void;
-  onDragEnd?: () => void;
+  onPointerDragStart?: (id: string, event: ReactPointerEvent<HTMLElement>) => void;
   dragging?: boolean;
 }
 
@@ -17,16 +16,14 @@ export function StoryCard({
   queueIndex,
   onEnqueue,
   onOpen,
-  onDragStart,
-  onDropBefore,
-  onDragEnd,
+  onPointerDragStart,
   dragging,
 }: StoryCardProps) {
   const running = story.column === "in_progress";
   const liveWorkerStream = hasLiveWorker(story);
   const lastLine = story.lines.length > 0 ? story.lines[story.lines.length - 1] : null;
   const activeRoute = story.activeRoute ?? lastLine?.route ?? "composer-implement";
-  const draggable = !!onDragStart;
+  const draggable = !!onPointerDragStart;
 
   return (
     <article
@@ -45,24 +42,12 @@ export function StoryCard({
             }
           : undefined
       }
-      draggable={draggable}
-      onDragStart={
-        onDragStart
+      onPointerDown={
+        onPointerDragStart
           ? (e) => {
-              e.dataTransfer.effectAllowed = "move";
-              e.dataTransfer.setData("text/plain", story.id);
-              onDragStart(story.id);
-            }
-          : undefined
-      }
-      onDragEnd={onDragEnd}
-      onDragOver={onDropBefore ? (e) => e.preventDefault() : undefined}
-      onDrop={
-        onDropBefore
-          ? (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDropBefore(story.id);
+              const target = e.target as HTMLElement;
+              if (target.closest("button,a,input,textarea,select")) return;
+              onPointerDragStart(story.id, e);
             }
           : undefined
       }

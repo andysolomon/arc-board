@@ -92,4 +92,10 @@ describe("board drag-and-drop seam", () => {
     expect(store.queueStories().map((s) => s.id)).not.toContain("x");
     expect(store.storiesByColumn("backlog").some((s) => s.id === "x")).toBe(true);
   });
+
+  it("enqueueStory refreshes queue order for pointer drops from backlog", async () => {
+    daemon.store.upsertStory(filed("n", "W-000004"));
+    await store.enqueueStory("n");
+    expect(store.queueStories().map((s) => s.id)).toContain("n");
+  });
 });
