@@ -205,6 +205,134 @@ export class QueueManager {
     return { ok: true };
   }
 
+  /** Derive the repo's default base branch for PRs (origin/HEAD, else "main"). */
+  private baseBranch(worktree: string): string {
+    try {
+      const ref = this.runCommand(
+        "git",
+        ["-C", worktree, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        { encoding: "utf8", stdio: "pipe" }
+      ).toString().trim();
+      const short = ref.replace(/^origin\//, "");
+      if (short) return short;
+    } catch {
+      // No origin/HEAD ref configured; fall back to main.
+    }
+    return "main";
+  }
+
+  /** Count commits and changed files on the worktree branch vs its base. Never throws. */
+  private reviewGitState(worktree: string, base: string): { commitCount: number; changed: string[] } {
+    try {
+      const commitCount = Number(
+        this.runCommand("git", ["-C", worktree, "rev-list", "--count", `${base}..HEAD`], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).toString().trim() || "0"
+      );
+      const changed = this.runCommand("git", ["-C", worktree, "diff", "--name-only", `${base}...HEAD`], {
+        encoding: "utf8",
+        stdio: "pipe",
+      })
+        .toString()
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+      return { commitCount: Number.isFinite(commitCount) ? commitCount : 0, changed };
+    } catch {
+      return { commitCount: 0, changed: [] };
+    }
+  }
+
+  /** Push the worktree branch and open (or reuse) a GitHub PR; returns the PR URL. */
+  private openPullRequest(story: Story, worktree: string, branch: string, base: string): string {
+    this.runCommand("git", ["-C", worktree, "push", "-u", "origin", branch], { stdio: "pipe" });
+    try {
+      return this.runCommand(
+        "gh",
+        [
+          "pr", "create",
+          "--repo", story.repo,
+          "--head", branch,
+          "--base", base,
+          "--title", story.title,
+          "--body", `Auto-opened from arc-story-queue for ${story.wid}.`,
+        ],
+        { encoding: "utf8", stdio: "pipe" }
+      ).toString().trim();
+    } catch {
+      // A PR for this branch may already exist — reuse its URL.
+      const existing = this.runCommand(
+        "gh",
+        ["pr", "view", branch, "--repo", story.repo, "--json", "url", "-q", ".url"],
+        { encoding: "utf8", stdio: "pipe" }
+      ).toString().trim();
+      if (existing) return existing;
+      throw new Error(`Failed to open or find a PR for branch ${branch}`);
+    }
+  }
+
+  /**
+   * Send an in-progress story to review. If its worktree branch has commits and the
+   * repo is a real GitHub remote, push the branch and open a PR; otherwise attach a
+   * local:// sentinel (no-code stories). Builds a handoff from the worktree git state.
+   */
+  async review(id: string): Promise<Story> {
+    const story = this.store.getStory(id);
+    if (!story) throw new Error(`Unknown story: ${id}`);
+    if (story.column !== "in_progress") throw new Error("Only in-progress stories can be sent to review");
+    const worktree = story.worktree?.trim();
+    if (!worktree || !existsSync(worktree)) throw new Error(`Story ${id} has no worktree to review`);
+
+    const base = this.baseBranch(worktree);
+    const { commitCount, changed } = this.reviewGitState(worktree, base);
+    const isGithubRepo = !!story.repo && !story.repo.startsWith("local/");
+
+    const pr = commitCount > 0 && isGithubRepo
+      ? this.openPullRequest(story, worktree, story.branch, base)
+      : `local://arc-story-queue/${story.wid}`;
+
+    const handoff: Handoff = {
+      status: "completed",
+      summary: `${story.wid} sent to Review from the board — ${commitCount} commit(s) on ${story.branch}.`,
+      changes: changed.length ? changed : ["No file changes detected against the base branch."],
+      verification: [`git rev-list --count ${base}..HEAD -> ${commitCount}`],
+      risks: ["Sent to review by an operator board action, not an automated worker run."],
+      next_actions: this.isLocalPr(pr)
+        ? ["Review the worktree, then Merge PR & clean worktree to finish."]
+        : [`Review the PR at ${pr}, then Merge PR & clean worktree to finish.`],
+    };
+    validateHandoff(handoff);
+    this.store.saveHandoff(id, handoff);
+
+    story.column = "review";
+    story.pr = pr;
+    story.prState = "open";
+    story.annotation = "accepted";
+    this.store.upsertStory(story);
+
+    const run: RunRecord = {
+      id: `run-${story.id}-review-${story.wid}`,
+      storyId: story.id,
+      label: "Sent to review from board",
+      repo: story.repo,
+      route: "fable",
+      backend: "Board action",
+      model: "operator",
+      access: "parent",
+      tokens: 0,
+      durMs: 1,
+      status: "completed",
+      changed: changed.length,
+      outcome: "accepted",
+    };
+    validateRunRecord(run);
+    this.store.saveRun(run);
+
+    if (story.worktree) this.releaseWrite(story.worktree);
+    return story;
+  }
+
   private prSelector(pr: string): string {
     const trimmed = pr.trim();
     const hash = trimmed.match(/#(\d+)/);

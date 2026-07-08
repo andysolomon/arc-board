@@ -184,6 +184,20 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "story.review",
+    {
+      title: "Send story to review",
+      description: "Send an in-progress story to review: push its worktree branch and open a PR (or use a local:// sentinel for no-code stories), attach a handoff, and move it to Review.",
+      inputSchema: { id: z.string() },
+    },
+    async ({ id }) => {
+      const s = await queue.review(id);
+      void sse.emitEvent({ kind: "review", id: s.id, wid: s.wid, title: s.title, column: s.column });
+      return jsonResult(s);
+    }
+  );
+
+  server.registerTool(
     "story.merge",
     {
       title: "Merge story PR",

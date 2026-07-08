@@ -198,10 +198,17 @@ function defaultStorage(): BoardStorage | null {
 }
 
 function parseToolResult<T>(result: unknown): T {
-  const r = result as { content?: Array<{ type: string; text?: string }> };
+  const r = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
   const text = r.content?.find((c) => c.type === "text")?.text;
+  if (r.isError) throw new Error(text ?? "MCP tool returned an error");
   if (!text) throw new Error("No text content in tool result");
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Non-JSON payload (e.g. a raw daemon error) — surface the text itself
+    // instead of a misleading "JSON Parse error".
+    throw new Error(text);
+  }
 }
 
 function defaultModelComplete(): ModelComplete | null {
@@ -1494,6 +1501,36 @@ export class BoardStore {
     this.updateStoryAndDetail(story);
     await Promise.all([this.loadQueue(), this.loadRuns()]);
     return story;
+  }
+
+  /**
+   * Send an in-progress story to Review from the board ("implementation is done").
+   * The daemon's story.review pushes the worktree branch and opens a real GitHub PR
+   * when there are commits, or uses a local:// sentinel for no-code stories. It also
+   * builds the handoff from the worktree git state and moves the card to Review.
+   */
+  async reviewStory(id: string): Promise<Story> {
+    const client = this.ensureClient();
+    const story = this.state.stories[id];
+    if (story && story.column !== "in_progress") {
+      throw new Error("Only in-progress stories can be sent to review");
+    }
+    let result: unknown;
+    try {
+      result = await client.callTool(
+        { name: "story.review", arguments: { id } },
+        CallToolResultSchema
+      );
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : "Failed to send story to review");
+    }
+    const r = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+    const text = r.content?.find((c) => c.type === "text")?.text;
+    if (r.isError) throw new Error(text ?? "Failed to send story to review");
+    const updated = parseToolResult<Story>(result);
+    this.updateStoryAndDetail(updated);
+    await Promise.all([this.loadQueue(), this.loadRuns()]);
+    return updated;
   }
 
   async abandonStory(id: string): Promise<Story> {
