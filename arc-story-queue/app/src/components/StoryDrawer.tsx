@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { Story, StoryDetail } from "arc-contracts";
+import type { Handoff, RunRecord, Story, StoryDetail } from "arc-contracts";
 import type { BoardStore, RefineAction } from "../lib/boardStore";
 import {
   COLUMN_LABELS,
@@ -9,6 +9,7 @@ import {
   routeLabel,
   routeModel,
   workerLanes,
+  type TerminalLine,
   type WorkerLane,
 } from "../lib/boardStore";
 import { useDialog } from "../lib/useDialog";
@@ -19,8 +20,9 @@ interface StoryDrawerProps {
 }
 
 export function StoryDrawer({ store, detail }: StoryDrawerProps) {
-  const { story, runs, handoff } = detail;
-  const boardStory = store.getState().stories[story.id];
+  const boardStory = store.getState().stories[detail.story.id];
+  const story = boardStory ?? detail.story;
+  const { runs, handoff } = detail;
   const lanes = boardStory ? workerLanes(boardStory) : [];
   const activeLaneCount = lanes.filter((lane) => lane.status === "running").length;
   const asideRef = useDialog<HTMLElement>(() => store.closeStory());
@@ -38,10 +40,7 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
       >
         <header className="sq-drawer__head">
           <div className="sq-drawer__head-left">
-            <span className="sq-drawer__col">
-              <span className="sq-dot" style={{ background: columnDotColor(story.column) }} />
-              {COLUMN_LABELS[story.column]}
-            </span>
+            <HeaderPills story={story} />
             {lanes.length > 0 && (
               <span className="sq-drawer__workers">
                 <span className="sq-dot" />
@@ -60,18 +59,7 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
         </header>
 
         <h2 id="sq-drawer-title" className="sq-drawer__title">{story.title}</h2>
-
-        <div className="sq-drawer__pills">
-          <span className="sq-mono sq-pill-flat">{story.wid}</span>
-          {story.issue && <span className="sq-mono sq-pill-flat">{story.issue}</span>}
-          {story.pr && <span className="sq-mono sq-pill-flat">{story.pr}</span>}
-          {story.draft && <span className="story-card__draft">DRAFT</span>}
-          <span className="sq-mono sq-pill-flat">{story.taskClass}</span>
-          <span className="sq-mono sq-pill-flat">{story.size}</span>
-        </div>
-
-        <div className="sq-mono sq-drawer__path">{story.repo} · {story.branch}</div>
-        {story.worktree && <div className="sq-mono sq-drawer__path">{story.worktree}</div>}
+        <TitleChips story={story} />
 
         {story.draft && (
           <>
@@ -86,57 +74,28 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
           <div className="sq-warn">PR closed without merging; this card stays in Review for human recovery.</div>
         )}
 
-        {story.column === "review" && story.pr && story.prState !== "merged" && story.prState !== "closed" && (
-          <ReviewActions store={store} story={story} />
-        )}
-
         {story.column === "in_progress" && story.worktree && (
           <AbandonActions store={store} story={story} />
         )}
 
-        {story.description && (
-          <Section label="Contract">
-            <p className="sq-drawer__desc">{story.description}</p>
-          </Section>
-        )}
-
-        {story.plan && (
-          <Section label="Plan">
-            <ul className="sq-list">
-              {story.plan.tasks.map((t, i) => (
-                <li key={i}>{t}</li>
-              ))}
-            </ul>
-            {story.plan.files.length > 0 && (
-              <div className="sq-mono sq-drawer__files">
-                {story.plan.files.map((f, i) => (
-                  <div key={i}>{f.path} — {f.change}</div>
-                ))}
-              </div>
-            )}
-            {story.plan.testStrategy && (
-              <p className="sq-drawer__desc">Tests: {story.plan.testStrategy}</p>
-            )}
-          </Section>
-        )}
+        <DelegationContract story={story} />
+        {story.plan && <ImplementationPlan story={story} />}
 
         {story.criteria.length > 0 && (
           <Section label="Acceptance criteria">
-            <ul className="sq-list">
+            <ul className="sq-checklist">
               {story.criteria.map((c, i) => (
-                <li key={i}>{c}</li>
+                <li key={i}>
+                  <input
+                    type="checkbox"
+                    checked={story.column === "review" || story.column === "done"}
+                    readOnly
+                    aria-label={c}
+                  />
+                  <span>{c}</span>
+                </li>
               ))}
             </ul>
-          </Section>
-        )}
-
-        {lanes.length > 0 && (
-          <Section label="Delegated run · parallel workers">
-            <div className="sq-lanes">
-              {lanes.map((lane) => (
-                <WorkerLaneTerminal key={lane.route} lane={lane} />
-              ))}
-            </div>
           </Section>
         )}
 
@@ -177,38 +136,212 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
           </Section>
         )}
 
-        {runs.length > 0 && (
-          <Section label={`Runs · ${runs.length}`}>
-            {runs.map((r) => (
-              <div key={r.id} className="sq-runrow">
-                <span className="sq-route__dot" style={{ background: routeColor(r.route) }} />
-                <span className="sq-runrow__label">{r.label}</span>
-                <span className="sq-mono sq-runrow__tok">{r.tokens.toLocaleString()} tok</span>
-                <span className="sq-mono sq-runrow__dur">{r.durMs}ms</span>
-                <span className={`sq-outcome sq-outcome--${r.outcome}`}>{r.outcome}</span>
-              </div>
-            ))}
+        {lanes.length > 0 && (
+          <Section
+            label="Delegated run · parallel workers"
+            meta={activeLaneCount > 0 ? <span className="sq-live-label"><span className="sq-dot" />LIVE</span> : null}
+          >
+            <div className="sq-lanes">
+              {lanes.map((lane) => (
+                <WorkerLaneTerminal key={lane.route} lane={lane} />
+              ))}
+            </div>
           </Section>
         )}
 
-        {handoff && (
-          <Section label={`Handoff · ${handoff.status}`}>
-            <p className="sq-drawer__desc">{handoff.summary}</p>
-            <HandoffList label="Changes" items={handoff.changes} />
-            <HandoffList label="Verification" items={handoff.verification} />
-            <HandoffList label="Risks" items={handoff.risks} />
-            <HandoffList label="Next actions" items={handoff.next_actions} />
-          </Section>
+        {handoff && <StructuredHandoff handoff={handoff} story={story} runs={runs} />}
+
+        {story.column === "review" && story.pr && story.prState !== "merged" && story.prState !== "closed" && (
+          <ReviewActions store={store} story={story} />
         )}
       </aside>
     </>
   );
 }
 
+function HeaderPills({ story }: { story: Story }) {
+  const pr = prLabel(story.pr);
+  return (
+    <div className="sq-drawer__pills sq-drawer__pills--head">
+      <span className="sq-drawer__state">
+        <span className="sq-dot" style={{ background: columnDotColor(story.column) }} />
+        {COLUMN_LABELS[story.column].toUpperCase()}
+      </span>
+      <span className={`sq-drawer__priority sq-drawer__priority--${story.priority}`}>
+        {story.priority.toUpperCase()} PRIORITY
+      </span>
+      <span className="sq-mono sq-pill-flat">{story.wid}</span>
+      {story.epic && <span className="sq-mono sq-pill-flat">epic: {story.epic}</span>}
+      <span className="sq-mono sq-pill-flat">size: {story.size}</span>
+      <span className="sq-mono sq-pill-flat">{workTypeLabel(story)}</span>
+      {pr && <span className="sq-mono sq-pill-flat sq-pill-flat--pr">{pr}</span>}
+    </div>
+  );
+}
+
+function TitleChips({ story }: { story: Story }) {
+  return (
+    <div className="sq-title-chips">
+      {story.repo && <span className="sq-mono sq-title-chip">{story.repo}</span>}
+      {story.worktree && <span className="sq-mono sq-title-chip">⌥ {story.worktree}</span>}
+      {story.branch && <span className="sq-mono sq-title-chip">⎇ {story.branch}</span>}
+    </div>
+  );
+}
+
+function workTypeLabel(story: Story): string {
+  if (story.type === "bug" || story.taskClass === "bugfix") return "BUG";
+  if (story.type === "slice") return "SLICE";
+  return story.taskClass.toUpperCase();
+}
+
+function prLabel(pr?: string | null): string | null {
+  if (!pr) return null;
+  const hash = pr.match(/#\d+/)?.[0];
+  if (hash) return `PR ${hash}`;
+  const pathNumber = pr.match(/\/pull\/(\d+)/)?.[1] ?? pr.match(/\bpr\/(\d+)/i)?.[1];
+  if (pathNumber) return `PR #${pathNumber}`;
+  const plain = pr.match(/^\d+$/)?.[0];
+  if (plain) return `PR #${plain}`;
+  return pr;
+}
+
+function DelegationContract({ story }: { story: Story }) {
+  const invariants = [story.issue ? `Preserve GitHub link ${story.issue}` : null, ...story.criteria]
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(" · ");
+  const verification = story.plan?.testStrategy || story.criteria[0] || "Verify the accepted behavior before handoff.";
+  const rows = [
+    ["Outcome", story.description || story.title],
+    ["Scope", [story.repo, story.branch, story.worktree].filter(Boolean).join(" · ") || "Story-scoped repository changes only"],
+    ["Invariants", invariants || "No unrelated queue, board, or daemon behavior regresses."],
+    ["Verification", verification],
+    ["Prohibited", "No unrelated rewrites, hidden empty sections, or overflow-prone drawer content."],
+  ] as const;
+
+  return (
+    <Section label="Delegation contract">
+      <div className="sq-contract-grid">
+        {rows.map(([label, value]) => (
+          <div key={label} className="sq-contract-row">
+            <div className="sq-contract-row__label">{label}</div>
+            <div className="sq-contract-row__value">{value}</div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function ImplementationPlan({ story }: { story: Story }) {
+  const plan = story.plan;
+  if (!plan) return null;
+  const tasks = plan.tasks ?? [];
+  const files = plan.files ?? [];
+  const acMapping = plan.acMapping ?? [];
+  if (tasks.length === 0 && files.length === 0 && !plan.testStrategy && acMapping.length === 0) return null;
+  return (
+    <Section label="Implementation plan">
+      {tasks.length > 0 && (
+        <PlanBlock label="Ordered tasks">
+          <ol className="sq-plan-list sq-plan-list--ordered">
+            {tasks.map((task, i) => <li key={i}>{task}</li>)}
+          </ol>
+        </PlanBlock>
+      )}
+      {files.length > 0 && (
+        <PlanBlock label="File changes">
+          <div className="sq-plan-files sq-mono">
+            {files.map((file, i) => (
+              <div key={`${file.path}-${i}`}>{file.path} — {file.change}</div>
+            ))}
+          </div>
+        </PlanBlock>
+      )}
+      {plan.testStrategy && (
+        <PlanBlock label="Test strategy">
+          <p className="sq-drawer__desc">{plan.testStrategy}</p>
+        </PlanBlock>
+      )}
+      {acMapping.length > 0 && (
+        <PlanBlock label="Acceptance mapping">
+          <div className="sq-plan-map">
+            {acMapping.map((mapping, i) => (
+              <div key={`${mapping.ac}-${i}`} className="sq-plan-map__row">
+                <span>{mapping.ac}</span>
+                <span aria-hidden>←</span>
+                <span>{mapping.by}</span>
+              </div>
+            ))}
+          </div>
+        </PlanBlock>
+      )}
+    </Section>
+  );
+}
+
+function PlanBlock({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="sq-plan-block">
+      <div className="sq-plan-block__label">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function StructuredHandoff({ handoff, story, runs }: { handoff: Handoff; story: Story; runs: RunRecord[] }) {
+  const payload: Handoff = {
+    status: handoff.status,
+    summary: handoff.summary,
+    changes: handoff.changes,
+    verification: handoff.verification,
+    risks: handoff.risks,
+    next_actions: handoff.next_actions,
+  };
+  const tokens = runs.reduce((sum, run) => sum + run.tokens, 0);
+  const durMs = runs.reduce((sum, run) => sum + run.durMs, 0);
+  const meta = [tokens ? `${tokens.toLocaleString()} tok` : null, durMs ? formatDuration(durMs) : null]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <Section
+      label="Structured handoff"
+      meta={
+        <>
+          <span className={`sq-outcome sq-outcome--${story.annotation ?? "unrated"}`}>
+            Fable · {story.annotation ?? handoff.status}
+          </span>
+          {meta && <span className="sq-handoff-meta sq-mono">{meta}</span>}
+        </>
+      }
+    >
+      <pre className="sq-handoff-json sq-scroll">{JSON.stringify(payload, null, 2)}</pre>
+    </Section>
+  );
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
 function accessClass(access: string): string {
   if (access === "write") return "sq-access--write";
   if (access === "parent") return "sq-access--parent";
   return "sq-access--readonly";
+}
+
+function linePrefix(line: TerminalLine): string {
+  if (line.kind === "cmd") return "$ ";
+  if (line.kind === "ok") return "✓ ";
+  if (line.kind === "lock") return "⚿ ";
+  if (line.kind === "unlock") return "↯ ";
+  return "";
 }
 
 function WorkerLaneTerminal({ lane }: { lane: WorkerLane }) {
@@ -221,16 +354,17 @@ function WorkerLaneTerminal({ lane }: { lane: WorkerLane }) {
           <span className="sq-route__dot" style={{ background: routeColor(lane.route) }} />
           <span>{routeLabel(lane.route)}</span>
         </div>
-        <span className={`sq-access ${accessClass(access)}`}>{access}</span>
+        <span className="sq-lane__model sq-mono">{routeModel(lane.route)}</span>
+        <span className="sq-lane__spacer" />
         {access === "write" && <span className="sq-lane__lock">⚿ write-lock</span>}
+        <span className={`sq-access ${accessClass(access)}`}>{access}</span>
         <span className={`sq-lane__status sq-lane__status--${lane.status}`}>{lane.status}</span>
       </header>
-      <div className="sq-lane__model sq-mono">{routeModel(lane.route)}</div>
       <div className="sq-lane__terminal sq-mono" aria-label={`${routeLabel(lane.route)} terminal`}>
         {lane.lines.length > 0 ? (
           lane.lines.map((line, i) => (
             <div key={`${line.text}-${i}`} className={`sq-lane__line sq-lane__line--${line.kind} sq-stream`}>
-              {line.text}
+              <span className="sq-lane__prefix">{linePrefix(line)}</span>{line.text}
             </div>
           ))
         ) : (
@@ -426,10 +560,13 @@ function FilingSection({ store, story }: { store: BoardStore; story: Story }) {
   );
 }
 
-function Section({ label, children }: { label: string; children: ReactNode }) {
+function Section({ label, meta, children }: { label: string; meta?: ReactNode; children: ReactNode }) {
   return (
     <section className="sq-drawer__section">
-      <div className="sq-block__label">{label}</div>
+      <div className="sq-block__label sq-block__label--row">
+        <span>{label}</span>
+        {meta && <span className="sq-block__meta">{meta}</span>}
+      </div>
       {children}
     </section>
   );
