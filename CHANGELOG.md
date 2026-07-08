@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/andysolomon/arc-board/compare/v1.12.0...v1.13.0) (2026-07-08)
+
+
+### Features
+
+* persist known repo paths for quick reconnect ([#44](https://github.com/andysolomon/arc-board/issues/44)) ([b760d80](https://github.com/andysolomon/arc-board/commit/b760d805eacf0ec8db56be1afe15f115d0107dfe)), closes [#42](https://github.com/andysolomon/arc-board/issues/42)
+
 # [1.12.0](https://github.com/andysolomon/arc-board/compare/v1.11.0...v1.12.0) (2026-07-08)
 
 
