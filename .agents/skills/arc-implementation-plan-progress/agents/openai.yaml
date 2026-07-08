@@ -1,4 +1,0 @@
-interface:
-  display_name: "Implementation Plan Progress"
-  short_description: "Build precise implementation plans + progress logs"
-  default_prompt: "Use $implementation-plan-progress to create an implementation plan and progress.txt for this project based on current repo state and missing scope."

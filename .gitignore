@@ -43,3 +43,7 @@ test-results/
 # Scratch
 *.tmp
 pw-*.mjs
+
+# Agent skills (installed locally from arc-skills)
+.agents/
+skills-lock.json
