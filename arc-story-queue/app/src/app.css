@@ -165,6 +165,28 @@ body {
   gap: var(--sq-5);
   padding: var(--sq-4) var(--sq-7) var(--sq-7);
   overflow-x: auto;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  scrollbar-width: thin;
+}
+
+.board-view__columns::-webkit-scrollbar {
+  height: 9px;
+}
+
+.board-view__columns::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+
+.board-view__columns::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: padding-box;
+}
+
+.board-view__columns::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .board-column {
