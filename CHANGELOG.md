@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/andysolomon/arc-board/compare/v1.11.0...v1.12.0) (2026-07-08)
+
+
+### Features
+
+* add daemon-backed repo path picker ([#43](https://github.com/andysolomon/arc-board/issues/43)) ([3dd1d44](https://github.com/andysolomon/arc-board/commit/3dd1d44f1105f997f41f7dcca0e6005bec23dd19)), closes [#41](https://github.com/andysolomon/arc-board/issues/41)
+
 # [1.11.0](https://github.com/andysolomon/arc-board/compare/v1.10.0...v1.11.0) (2026-07-08)
 
 
