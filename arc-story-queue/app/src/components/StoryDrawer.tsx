@@ -82,7 +82,11 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
 
         {story.column === "backlog" && <RefineActions store={store} story={story} />}
 
-        {story.column === "review" && story.pr && story.prState !== "merged" && (
+        {story.column === "review" && story.prState === "closed" && (
+          <div className="sq-warn">PR closed without merging; this card stays in Review for human recovery.</div>
+        )}
+
+        {story.column === "review" && story.pr && story.prState !== "merged" && story.prState !== "closed" && (
           <ReviewActions store={store} story={story} />
         )}
 

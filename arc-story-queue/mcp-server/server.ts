@@ -21,6 +21,7 @@ export interface DaemonOptions {
   dbPath?: string;
   worktreeRoot?: string;
   maxParallel?: number;
+  prReconcileIntervalMs?: number;
 }
 
 export interface DaemonHandle {
@@ -655,6 +656,21 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     }
   }
 
+  const prReconcileIntervalMs = opts.prReconcileIntervalMs ?? 60_000;
+  const prReconcileTimer = prReconcileIntervalMs > 0
+    ? setInterval(() => {
+        void ctx.queue.reconcileReviewPrs();
+      }, prReconcileIntervalMs)
+    : undefined;
+  if (
+    prReconcileTimer &&
+    typeof prReconcileTimer === "object" &&
+    "unref" in prReconcileTimer &&
+    typeof prReconcileTimer.unref === "function"
+  ) {
+    prReconcileTimer.unref();
+  }
+
   return {
     server: httpServer,
     port,
@@ -665,6 +681,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     sse: ctx.sse,
     close: async () => {
       for (const t of transports.values()) await t.close();
+      if (prReconcileTimer) clearInterval(prReconcileTimer);
       transports.clear();
       sessionServers.clear();
       ctx.store.close();
