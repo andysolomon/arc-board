@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/andysolomon/arc-board/compare/v1.5.0...v1.6.0) (2026-07-08)
+
+
+### Features
+
+* add in-drawer story refinement ([#33](https://github.com/andysolomon/arc-board/issues/33)) ([9bc19bb](https://github.com/andysolomon/arc-board/commit/9bc19bb140dd26914f7a8452bcf1fe6ea1514cb5)), closes [#17](https://github.com/andysolomon/arc-board/issues/17)
+
 # [1.5.0](https://github.com/andysolomon/arc-board/compare/v1.4.0...v1.5.0) (2026-07-08)
 
 
