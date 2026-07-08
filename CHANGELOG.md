@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/andysolomon/arc-board/compare/v1.10.0...v1.11.0) (2026-07-08)
+
+
+### Features
+
+* detect GitHub-side PR merges ([#40](https://github.com/andysolomon/arc-board/issues/40)) ([4f98553](https://github.com/andysolomon/arc-board/commit/4f9855368338bcd7e0ab2ddc682a07777b07d4e7)), closes [#39](https://github.com/andysolomon/arc-board/issues/39)
+
 # [1.10.0](https://github.com/andysolomon/arc-board/compare/v1.9.0...v1.10.0) (2026-07-08)
 
 
