@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/andysolomon/arc-board/compare/v1.15.0...v1.16.0) (2026-07-08)
+
+
+### Features
+
+* make arc-contracts a deep contract module ([#58](https://github.com/andysolomon/arc-board/issues/58)) ([51b759b](https://github.com/andysolomon/arc-board/commit/51b759bf6aed6f89f7bb70c8ed844538e49cf34d)), closes [#51](https://github.com/andysolomon/arc-board/issues/51)
+
 # [1.15.0](https://github.com/andysolomon/arc-board/compare/v1.14.0...v1.15.0) (2026-07-08)
 
 
