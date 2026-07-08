@@ -12,6 +12,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { AnnotateOutcome, FsDirListing, Handoff, IntakeDraftProposal, Plan, RunRecord, Story } from "arc-contracts";
 import { IntakeManager } from "./intake.js";
+import { StoryLifecycle, type LifecycleResult } from "./lifecycle.js";
 import { QueueManager } from "./queue.js";
 import { SessionRegistry } from "./registry.js";
 import { SseHub } from "./sse.js";
@@ -41,6 +42,13 @@ export interface DaemonHandle {
 
 function jsonResult(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
+}
+
+async function lifecycleJsonResult<T>(sse: SseHub, lifecycleResult: LifecycleResult<T>) {
+  for (const event of lifecycleResult.events) {
+    await sse.emitEvent(event);
+  }
+  return jsonResult(lifecycleResult.value);
 }
 
 function assertGitRepoPath(path: string): void {
@@ -118,12 +126,13 @@ function createSharedContext(opts: DaemonOptions) {
     { store, registry, sse }
   );
   const intake = new IntakeManager({ store });
+  const lifecycle = new StoryLifecycle(queue, intake);
   const fsRoot = opts.fsRoot ?? process.env.ARC_BOARD_FS_ROOT ?? homedir();
-  return { store, registry, sse, queue, intake, fsRoot };
+  return { store, registry, sse, queue, lifecycle, intake, fsRoot };
 }
 
 function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedContext>): void {
-  const { queue, intake, registry, store, sse, fsRoot } = ctx;
+  const { queue, lifecycle, intake, registry, store, sse, fsRoot } = ctx;
 
   server.registerTool(
     "session.register",
@@ -151,11 +160,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Pull the top queued story for this project, open its worktree, mark in_progress.",
       inputSchema: { projectId: z.string() },
     },
-    async ({ projectId }) => {
-      const s = await queue.next(projectId);
-      if (s) void sse.emitEvent({ kind: "started", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ projectId }) => lifecycleJsonResult(sse, await lifecycle.dispatch(projectId))
   );
 
   server.registerTool(
@@ -190,7 +195,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
           .optional(),
       },
     },
-    async (args) => jsonResult(await queue.update(args))
+    async (args) => lifecycleJsonResult(sse, await lifecycle.update(args))
   );
 
   server.registerTool(
@@ -231,12 +236,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         outcome: z.enum(["accepted", "rejected", "blocked", "verification-failed", "escalated"]) as z.ZodType<AnnotateOutcome>,
       },
     },
-    async (args) => {
-      const r = await queue.complete(args);
-      const s = store.getStory(args.id);
-      if (s) void sse.emitEvent({ kind: "review", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(r);
-    }
+    async (args) => lifecycleJsonResult(sse, await lifecycle.complete(args))
   );
 
   server.registerTool(
@@ -250,12 +250,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         outcome: z.enum(["blocked", "verification-failed", "escalated"]),
       },
     },
-    async (args) => {
-      const r = await queue.block(args);
-      const s = store.getStory(args.id);
-      if (s) void sse.emitEvent({ kind: "escalated", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(r);
-    }
+    async (args) => lifecycleJsonResult(sse, await lifecycle.block(args))
   );
 
   server.registerTool(
@@ -265,11 +260,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Send an in-progress story to review: push its worktree branch and open a PR (or use a local:// sentinel for no-code stories), attach a handoff, and move it to Review.",
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => {
-      const s = await queue.review(id);
-      void sse.emitEvent({ kind: "review", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ id }) => lifecycleJsonResult(sse, await lifecycle.review(id))
   );
 
   server.registerTool(
@@ -279,11 +270,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Merge a reviewed story's PR, remove its worktree, release its lock, and move it to Done.",
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => {
-      const s = await queue.merge(id);
-      void sse.emitEvent({ kind: "done", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ id }) => lifecycleJsonResult(sse, await lifecycle.merge(id))
   );
 
   server.registerTool(
@@ -293,11 +280,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Abandon an in-progress story, remove its worktree, release its lock, and move it back to Backlog.",
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => {
-      const s = await queue.abandon(id);
-      void sse.emitEvent({ kind: "abandoned", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ id }) => lifecycleJsonResult(sse, await lifecycle.abandon(id))
   );
 
   server.registerTool(
@@ -401,11 +384,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         "Deterministically template a pending intake item into a backlog draft story (no model).",
       inputSchema: { id: z.string(), projectId: z.string() },
     },
-    async ({ id, projectId }) => {
-      const s = intake.draft(id, queue.repoOf(projectId));
-      void sse.emitEvent({ kind: "drafted", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ id, projectId }) => lifecycleJsonResult(sse, lifecycle.draftIntake(id, queue.repoOf(projectId)))
   );
 
   server.registerTool(
@@ -416,13 +395,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         "Persist selected intake proposals as backlog drafts. Proposals may come from Fable/the harness or the deterministic UI fallback; the daemon never invokes a model.",
       inputSchema: { projectId: z.string(), drafts: z.array(z.custom<IntakeDraftProposal>()) },
     },
-    async ({ projectId, drafts }) => {
-      const stories = intake.createDrafts(drafts, queue.repoOf(projectId));
-      for (const s of stories) {
-        void sse.emitEvent({ kind: "drafted", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      }
-      return jsonResult(stories);
-    }
+    async ({ projectId, drafts }) => lifecycleJsonResult(sse, lifecycle.createDrafts(drafts, queue.repoOf(projectId)))
   );
 
   server.registerTool(
@@ -435,11 +408,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         issue: z.string(),
       },
     },
-    async ({ id, issue }) => {
-      const s = await queue.file(id, issue);
-      void sse.emitEvent({ kind: "filed", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ id, issue }) => lifecycleJsonResult(sse, await lifecycle.file(id, issue))
   );
 
   server.registerTool(
@@ -449,11 +418,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Flag a draft so a Fable session files it to GitHub via gh.",
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => {
-      const s = await queue.requestFile(id);
-      void sse.emitEvent({ kind: "file-requested", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ id }) => lifecycleJsonResult(sse, await lifecycle.requestFile(id))
   );
 
   server.registerTool(
@@ -503,11 +468,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Move a filed story into the execution queue.",
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => {
-      const s = await queue.enqueueStory(id);
-      void sse.emitEvent({ kind: "queued", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ id }) => lifecycleJsonResult(sse, await lifecycle.enqueue(id))
   );
 
   server.registerTool(
@@ -562,11 +523,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Pull a story out of the queue back to backlog.",
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => {
-      const s = queue.unqueue(id);
-      void sse.emitEvent({ kind: "unqueued", id: s.id, wid: s.wid, title: s.title, column: s.column });
-      return jsonResult(s);
-    }
+    async ({ id }) => lifecycleJsonResult(sse, lifecycle.unqueue(id))
   );
 
   server.registerTool(
