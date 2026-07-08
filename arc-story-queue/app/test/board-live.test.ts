@@ -79,6 +79,22 @@ describe("board live seam", () => {
     }
   }, 60_000);
 
+  it("can route MCP through an injected fetch implementation", async () => {
+    const seen: string[] = [];
+    const nativeFetchStore = new BoardStore(`http://127.0.0.1:${TEST_PORT}/mcp`, {
+      storage: null,
+      mcpFetch: async (url, init) => {
+        seen.push(String(url));
+        return fetch(url, init);
+      },
+    });
+
+    await nativeFetchStore.connect();
+    await nativeFetchStore.close();
+
+    expect(seen.some((url) => url === `http://127.0.0.1:${TEST_PORT}/mcp`)).toBe(true);
+  });
+
   it("reflects in_progress column and ordered story.update lines", async () => {
     const repoId = "test/board-live";
 

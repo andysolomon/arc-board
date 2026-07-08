@@ -14,6 +14,7 @@ import type {
 } from "arc-contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { CallToolResultSchema, LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 
 export const BOARD_COLUMNS: Column[] = ["backlog", "queued", "in_progress", "review", "done"];
@@ -86,6 +87,7 @@ export type ModelComplete = (args: ModelCompleteArgs) => Promise<string>;
 export interface BoardStoreOptions {
   storage?: BoardStorage | null;
   modelComplete?: ModelComplete | null;
+  mcpFetch?: FetchLike | null;
 }
 
 export interface BoardState {
@@ -186,6 +188,17 @@ function defaultModelComplete(): ModelComplete | null {
     claude?: { complete?: ModelComplete };
   };
   return typeof globals.claude?.complete === "function" ? globals.claude.complete : null;
+}
+
+function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+export async function resolveTauriHttpFetch(): Promise<FetchLike | null> {
+  if (!isTauriRuntime()) return null;
+  const mod = (await import("@tauri-apps/plugin-http")) as unknown as { fetch?: FetchLike };
+  if (typeof mod.fetch !== "function") throw new Error("tauri-plugin-http fetch is unavailable");
+  return mod.fetch;
 }
 
 function cap(s: string): string {
@@ -518,6 +531,7 @@ export class BoardStore {
   private notifySeq = 0;
   private readonly storage: BoardStorage | null;
   private readonly modelComplete: ModelComplete | null;
+  private readonly mcpFetch: FetchLike | null;
 
   constructor(
     private readonly mcpUrl: string,
@@ -526,12 +540,13 @@ export class BoardStore {
     const looksLikeOptions =
       storageOrOptions !== null &&
       typeof storageOrOptions === "object" &&
-      ("storage" in storageOrOptions || "modelComplete" in storageOrOptions);
+      ("storage" in storageOrOptions || "modelComplete" in storageOrOptions || "mcpFetch" in storageOrOptions);
     const options = looksLikeOptions ? (storageOrOptions as BoardStoreOptions) : undefined;
     this.storage = options
       ? options.storage === undefined ? defaultStorage() : options.storage
       : storageOrOptions === undefined ? defaultStorage() : (storageOrOptions as BoardStorage | null);
     this.modelComplete = options?.modelComplete === undefined ? defaultModelComplete() : options.modelComplete;
+    this.mcpFetch = options?.mcpFetch === undefined ? null : options.mcpFetch;
   }
 
   getState(): BoardState {
@@ -634,7 +649,11 @@ export class BoardStore {
     this.patch({ status: "connecting", error: undefined });
 
     try {
-      this.transport = new StreamableHTTPClientTransport(new URL(this.mcpUrl));
+      const mcpFetch = this.mcpFetch ?? (await resolveTauriHttpFetch());
+      this.transport = new StreamableHTTPClientTransport(
+        new URL(this.mcpUrl),
+        mcpFetch ? { fetch: mcpFetch } : undefined
+      );
       this.client = new Client({ name: "arc-story-queue-board", version: "0.1.0" });
       this.client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
         const raw = notification.params?.data;
