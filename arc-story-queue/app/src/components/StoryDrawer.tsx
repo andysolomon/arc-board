@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { Story, StoryDetail } from "arc-contracts";
-import type { BoardStore } from "../lib/boardStore";
+import type { BoardStore, RefineAction } from "../lib/boardStore";
 import {
   COLUMN_LABELS,
   columnDotColor,
@@ -79,6 +79,8 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
             <FilingSection store={store} story={story} />
           </>
         )}
+
+        {story.column === "backlog" && <RefineActions store={store} story={story} />}
 
         {story.column === "review" && story.pr && story.prState !== "merged" && (
           <ReviewActions store={store} story={story} />
@@ -257,6 +259,71 @@ function useStoryAction() {
   }
 
   return { busy, error, run };
+}
+
+function RefineActions({ store, story }: { store: BoardStore; story: Story }) {
+  const [refining, setRefining] = useState<RefineAction | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(action: RefineAction) {
+    setRefining(action);
+    setError(null);
+    setNote(null);
+    try {
+      const result = await store.refineStory(story.id, action);
+      setNote(result.note);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRefining(null);
+    }
+  }
+
+  const labels: Record<RefineAction, string> = {
+    split: "Splitting…",
+    tighten: "Tightening…",
+    dedupe: "Checking…",
+  };
+
+  return (
+    <Section label="Refine with agent">
+      <div className="sq-action-row sq-refine-row">
+        <button
+          type="button"
+          className="btn btn--secondary sq-action-row__button"
+          disabled={!!refining}
+          onClick={() => void run("split")}
+        >
+          Split story
+        </button>
+        <button
+          type="button"
+          className="btn btn--secondary sq-action-row__button"
+          disabled={!!refining}
+          onClick={() => void run("tighten")}
+        >
+          Tighten criteria
+        </button>
+        <button
+          type="button"
+          className="btn btn--secondary sq-action-row__button"
+          disabled={!!refining}
+          onClick={() => void run("dedupe")}
+        >
+          Dedupe
+        </button>
+      </div>
+      {refining && (
+        <div className="sq-refine-status" role="status" aria-live="polite">
+          <span className="sq-refine-status__spinner" aria-hidden />
+          {labels[refining]}
+        </div>
+      )}
+      {note && <div className="sq-refine-note">{note}</div>}
+      {error && <div className="connect-bar__error">{error}</div>}
+    </Section>
+  );
 }
 
 function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {

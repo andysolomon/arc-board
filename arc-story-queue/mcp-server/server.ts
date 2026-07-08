@@ -151,6 +151,18 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "story.save",
+    {
+      title: "Story save",
+      description: "Persist a refined story spec without changing its lifecycle column.",
+      inputSchema: {
+        story: z.custom<Story>(),
+      },
+    },
+    async ({ story }) => jsonResult(await queue.save(story))
+  );
+
+  server.registerTool(
     "story.complete",
     {
       title: "Story complete",
