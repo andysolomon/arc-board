@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BoardStore } from "../src/lib/boardStore";
+import { BoardStore, resolveTauriHttpFetch } from "../src/lib/boardStore";
+
+describe("MCP fetch selection", () => {
+  it("uses the browser fetch path outside Tauri", async () => {
+    expect(await resolveTauriHttpFetch()).toBeNull();
+  });
+});
 
 describe("notifications + toasts (store logic)", () => {
   it("notify pushes a toast and an unread notification", () => {

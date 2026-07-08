@@ -91,8 +91,8 @@ DESKTOP SHELL (Tauri v2, app/src-tauri): wraps the SAME Vite build in a native W
     3. IPv6: daemon now binds BOTH 127.0.0.1 and ::1 (localhost resolves to ::1 first on macOS).
     App URL is http://localhost:7420/mcp. Verified end-to-end in Chromium (Playwright): connect
     + attach path/repo -> board scope andysolomon/arc-orchestrator, 4 backlog cards.
-    The BUILT `.app` (tauri://localhost, secure) still hits MIXED CONTENT fetching http daemon;
-    tauri:dev + web work. Shippable-.app fix (TODO): route MCP via tauri-plugin-http.
+    The BUILT `.app` (tauri://localhost, secure) routes MCP through tauri-plugin-http,
+    avoiding mixed-content blocks while tauri:dev + web keep working.
 
 REVIEWS: two opus-review passes applied (Fable-pill semantic color, sqPop keyframe split,
   dialog a11y, keyboard-open cards, intake kind chip, drag dim, auto-run dep array, etc.).
