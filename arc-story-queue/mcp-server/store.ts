@@ -1,7 +1,7 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { AppConfig, Handoff, IntakeItem, RunRecord, Story } from "arc-contracts";
+import type { AppConfig, Handoff, IntakeItem, KnownProject, RunRecord, Story } from "arc-contracts";
 
 export class StoryStore {
   private db: DatabaseSync;
@@ -49,7 +49,47 @@ export class StoryStore {
         name TEXT PRIMARY KEY,
         value INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS known_projects (
+        path TEXT PRIMARY KEY,
+        repo TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        model TEXT NOT NULL,
+        last_used_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_known_projects_last_used_at ON known_projects(last_used_at DESC);
     `);
+  }
+
+  upsertKnownProject(project: Pick<KnownProject, "repo" | "path" | "branch" | "model">, lastUsedAt = Date.now()): KnownProject {
+    this.db
+      .prepare(
+        `INSERT INTO known_projects (path, repo, branch, model, last_used_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(path) DO UPDATE SET
+           repo = excluded.repo,
+           branch = excluded.branch,
+           model = excluded.model,
+           last_used_at = excluded.last_used_at`
+      )
+      .run(project.path, project.repo, project.branch, project.model, lastUsedAt);
+    return { ...project, lastUsedAt, exists: existsSync(project.path) };
+  }
+
+  listKnownProjects(limit = 20): KnownProject[] {
+    const rows = this.db
+      .prepare(
+        `SELECT repo, path, branch, model, last_used_at AS lastUsedAt
+         FROM known_projects
+         ORDER BY last_used_at DESC
+         LIMIT ?`
+      )
+      .all(limit) as Array<Pick<KnownProject, "repo" | "path" | "branch" | "model" | "lastUsedAt">>;
+    return rows.map((row) => ({ ...row, exists: existsSync(row.path) }));
+  }
+
+  forgetKnownProject(path: string): boolean {
+    const result = this.db.prepare("DELETE FROM known_projects WHERE path = ?").run(path);
+    return result.changes > 0;
   }
 
   /** Monotonic work-id allocator for deterministically drafted stories. */

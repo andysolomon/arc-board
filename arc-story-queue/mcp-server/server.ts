@@ -330,6 +330,25 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "projects.known.list",
+    {
+      title: "List known projects",
+      description: "List durable daemon-side repo paths, recent first.",
+    },
+    async () => jsonResult(queue.listKnownProjects())
+  );
+
+  server.registerTool(
+    "projects.known.forget",
+    {
+      title: "Forget known project",
+      description: "Remove one durable daemon-side known repo path.",
+      inputSchema: { path: z.string() },
+    },
+    async ({ path }) => jsonResult(queue.forgetKnownProject(path))
+  );
+
+  server.registerTool(
     "intake.enqueue",
     {
       title: "Intake enqueue",

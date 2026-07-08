@@ -1,7 +1,7 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import type { AnnotateOutcome, AppConfig, Handoff, Plan, Project, RunRecord, Story, StoryDetail } from "arc-contracts";
+import type { AnnotateOutcome, AppConfig, Handoff, KnownProject, Plan, Project, RunRecord, Story, StoryDetail } from "arc-contracts";
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
 import type { StoryStore } from "./store.js";
@@ -508,7 +508,16 @@ export class QueueManager {
   async attach(sessionId: string): Promise<Project> {
     const project = this.registry.attach(sessionId, this.cfg.worktreeRoot);
     validateProject(project);
+    this.store.upsertKnownProject(project);
     return project;
+  }
+
+  listKnownProjects(): KnownProject[] {
+    return this.store.listKnownProjects();
+  }
+
+  forgetKnownProject(path: string): { forgotten: boolean } {
+    return { forgotten: this.store.forgetKnownProject(path) };
   }
 
   async detach(projectId: string): Promise<Project> {

@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
-import type { FsDirListing, Project } from "arc-contracts";
+import type { FsDirListing, KnownProject, Project } from "arc-contracts";
 import type { BoardStore } from "../lib/boardStore";
 import { useDialog } from "../lib/useDialog";
 
 function projectSubline(project: Pick<Project, "path" | "branch" | "model">): string {
   return `${project.path} · ${project.branch} · ${project.model}`;
+}
+
+function knownProjectSubline(project: KnownProject): string {
+  const availability = project.exists ? "Available" : "Missing";
+  return `${project.path} · ${project.branch} · ${project.model} · ${availability}`;
 }
 
 function pathCrumbs(path: string): Array<{ label: string; path: string }> {
@@ -151,6 +156,7 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [discovered, setDiscovered] = useState<Project[]>([]);
+  const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
   const [repoPath, setRepoPath] = useState("");
   const [repoId, setRepoId] = useState("local/project");
   const state = store.getState();
@@ -159,9 +165,11 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
   const activeAll = state.activeProjectId === "all";
   const label = activeAll ? "All projects" : project ? project.repo : "Connect…";
 
-  async function refreshDiscovered() {
+  async function refreshProjectOptions() {
     if (store.getState().status !== "connected") await store.connect();
-    setDiscovered(await store.discover());
+    const [nextDiscovered, nextKnown] = await Promise.all([store.discover(), store.listKnownProjects()]);
+    setDiscovered(nextDiscovered);
+    setKnownProjects(nextKnown);
   }
 
   async function openMenu() {
@@ -169,7 +177,7 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
     setError(null);
     setBusy(true);
     try {
-      await refreshDiscovered();
+      await refreshProjectOptions();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -195,7 +203,7 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
     try {
       if (store.getState().status !== "connected") await store.connect();
       await store.attachSession(id);
-      await refreshDiscovered();
+      await refreshProjectOptions();
       setOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -222,7 +230,47 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
     setError(null);
     try {
       await store.detachProject(id);
-      await refreshDiscovered();
+      await refreshProjectOptions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reconnectKnown(project: KnownProject) {
+    setBusy(true);
+    setError(null);
+    try {
+      if (!project.exists) throw new Error(`Known path is unavailable: ${project.path}`);
+      if (store.getState().status !== "connected") await store.connect();
+      const alreadyAttached = store.getState().projects.find((p) => p.path === project.path);
+      if (alreadyAttached) {
+        await store.selectProject(alreadyAttached.id);
+      } else {
+        await store.registerAndAttach({
+          repo: project.repo,
+          path: project.path,
+          branch: project.branch,
+          model: project.model,
+          pid: 0,
+        });
+      }
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function forgetKnown(path: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      if (store.getState().status !== "connected") await store.connect();
+      await store.forgetKnownProject(path);
+      await refreshProjectOptions();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -386,6 +434,41 @@ export function ProjectSwitcher({ store }: { store: BoardStore }) {
                 </button>
               </div>
             ))}
+
+            <div className="sq-block__label">Recent paths</div>
+            {knownProjects.length === 0 && (
+              <div className="sq-empty">No recent paths</div>
+            )}
+            {knownProjects.map((known) => {
+              const attachedProject = attached.find((p) => p.path === known.path);
+              return (
+                <div key={known.path} className="sq-switcher__row">
+                  <span className="sq-switcher__main">
+                    <span className="sq-mono sq-switcher__repo">{known.repo}</span>
+                    <span className="sq-mono sq-switcher__meta">{knownProjectSubline(known)}</span>
+                  </span>
+                  {!known.exists && <span className="sq-switcher__badge">Missing</span>}
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => void reconnectKnown(known)}
+                    disabled={busy || !known.exists}
+                  >
+                    {attachedProject ? "Switch" : "Reconnect"}
+                  </button>
+                  <button
+                    type="button"
+                    className="sq-iconbtn sq-switcher__detach"
+                    aria-label={`Forget ${known.repo}`}
+                    title={`Forget ${known.repo}`}
+                    onClick={() => void forgetKnown(known.path)}
+                    disabled={busy}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
 
             <div className="sq-block__label">Connect a repo</div>
             <label className="sq-field">
