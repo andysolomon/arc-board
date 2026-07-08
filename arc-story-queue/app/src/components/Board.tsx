@@ -150,7 +150,7 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
   }, [dragId, dragCol]);
 
   return (
-    <div className="sq-view">
+    <div className="sq-view sq-view--board">
       <header className="sq-view__head">
         <div>
           <h1 className="sq-view__title">Board</h1>
