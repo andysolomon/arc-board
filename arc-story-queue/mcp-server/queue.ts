@@ -1,14 +1,21 @@
 import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import type { AppConfig, Handoff, Plan, Project, RunRecord, Story, StoryDetail } from "arc-contracts";
+import type { AnnotateOutcome, AppConfig, Handoff, Plan, Project, RunRecord, Story, StoryDetail } from "arc-contracts";
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
 import type { StoryStore } from "./store.js";
-import { validateHandoff } from "./validate.js";
+import { validateHandoff, validatePlan, validateProject, validateRunRecord } from "./validate.js";
 import { ghListIssues, importIssuesToStore, type IssueLister } from "./github-import.js";
 
-const READ_ONLY_ROUTES = new Set(["codex-explore", "codex-check", "opus-review"]);
+const READ_ONLY_ROUTES = new Set([
+  "codex-explore",
+  "composer-explore",
+  "opus-explore",
+  "codex-check",
+  "composer-check",
+  "opus-check",
+]);
 
 export interface QueueConfig {
   worktreeRoot: string;
@@ -136,6 +143,7 @@ export class QueueManager {
   }
 
   async setPlan(id: string, plan: Plan): Promise<{ ok: true }> {
+    validatePlan(plan);
     const s = this.store.getStory(id);
     if (s) {
       s.plan = plan;
@@ -166,9 +174,10 @@ export class QueueManager {
     handoff: Handoff;
     pr: string;
     runs: RunRecord[];
-    outcome: "accepted" | "escalated";
+    outcome: AnnotateOutcome;
   }): Promise<{ ok: true }> {
     validateHandoff(args.handoff);
+    for (const run of args.runs) validateRunRecord(run);
     const s = this.store.getStory(args.id);
     if (!s) throw new Error(`Unknown story: ${args.id}`);
 
@@ -260,11 +269,15 @@ export class QueueManager {
   }
 
   async discover(): Promise<Project[]> {
-    return this.registry.discover();
+    const projects = this.registry.discover();
+    for (const project of projects) validateProject(project);
+    return projects;
   }
 
   async attach(sessionId: string): Promise<Project> {
-    return this.registry.attach(sessionId, this.cfg.worktreeRoot);
+    const project = this.registry.attach(sessionId, this.cfg.worktreeRoot);
+    validateProject(project);
+    return project;
   }
 
   async file(id: string, issue: string): Promise<Story> {

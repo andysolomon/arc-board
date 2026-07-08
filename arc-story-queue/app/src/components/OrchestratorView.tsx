@@ -17,10 +17,14 @@ interface RouteRow {
 // Static route table from the design system (arc-contracts Route shape).
 const ROUTES: RouteRow[] = [
   { id: "codex-explore", backend: "Codex CLI", model: "gpt-5.4-mini", access: "read-only", use: "Repo exploration, evidence gathering" },
+  { id: "composer-explore", backend: "Cursor Agent", model: "composer-2.5", access: "read-only", use: "Composer fallback exploration" },
+  { id: "opus-explore", backend: "Claude Agent", model: "opus-4.8", access: "read-only", use: "Deep reasoning exploration" },
   { id: "composer-implement", backend: "Cursor Agent", model: "composer-2.5", access: "write", use: "Default bulk implementation" },
   { id: "codex-implement", backend: "Codex CLI", model: "gpt-5.5", access: "write", use: "Hard implementation / escalation" },
+  { id: "opus-implement", backend: "Claude Agent", model: "opus-4.8", access: "write", use: "High-taste implementation fallback" },
   { id: "codex-check", backend: "Codex CLI", model: "gpt-5.5", access: "read-only", use: "Independent review of changes" },
-  { id: "opus-review", backend: "Claude Agent", model: "opus-4.8", access: "read-only", use: "High-taste UI/UX/API review" },
+  { id: "composer-check", backend: "Cursor Agent", model: "composer-2.5", access: "read-only", use: "Fast implementation check" },
+  { id: "opus-check", backend: "Claude Agent", model: "opus-4.8", access: "read-only", use: "Deep verification and review" },
   { id: "fable", backend: "Claude Code", model: "orchestrator", access: "parent", use: "Parent — runs every model" },
 ];
 

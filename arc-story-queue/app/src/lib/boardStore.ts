@@ -1198,6 +1198,18 @@ const ROUTE_META: Record<RouteId, { label: string; color: string; model: string;
     model: "gpt-5.4-mini",
     access: "read-only",
   },
+  "composer-explore": {
+    label: "composer-explore",
+    color: "var(--sq-route-composer)",
+    model: "composer-2.5",
+    access: "read-only",
+  },
+  "opus-explore": {
+    label: "opus-explore",
+    color: "var(--sq-route-review)",
+    model: "opus-4.8",
+    access: "read-only",
+  },
   "composer-implement": {
     label: "composer-implement",
     color: "var(--sq-route-composer)",
@@ -1210,14 +1222,26 @@ const ROUTE_META: Record<RouteId, { label: string; color: string; model: string;
     model: "gpt-5.5",
     access: "write",
   },
+  "opus-implement": {
+    label: "opus-implement",
+    color: "var(--sq-route-review)",
+    model: "opus-4.8",
+    access: "write",
+  },
   "codex-check": {
     label: "codex-check",
     color: "var(--sq-route-check)",
     model: "gpt-5.5",
     access: "read-only",
   },
-  "opus-review": {
-    label: "opus-review",
+  "composer-check": {
+    label: "composer-check",
+    color: "var(--sq-route-composer)",
+    model: "composer-2.5",
+    access: "read-only",
+  },
+  "opus-check": {
+    label: "opus-check",
     color: "var(--sq-route-review)",
     model: "opus-4.8",
     access: "read-only",

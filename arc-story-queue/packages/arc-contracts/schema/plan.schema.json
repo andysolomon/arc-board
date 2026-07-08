@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arc.dev/schema/plan.json",
+  "title": "Plan",
+  "type": "object",
+  "required": [
+    "tasks",
+    "files",
+    "testStrategy",
+    "acMapping"
+  ],
+  "properties": {
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "change"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "change": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "testStrategy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "acMapping": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ac", "by"],
+        "properties": {
+          "ac": {
+            "type": "string",
+            "minLength": 1
+          },
+          "by": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
