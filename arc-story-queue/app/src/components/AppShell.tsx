@@ -91,8 +91,13 @@ export function AppShell({ store }: AppShellProps) {
           <span className="sq-traffic__dot sq-traffic__dot--y" />
           <span className="sq-traffic__dot sq-traffic__dot--g" />
         </div>
-        <div className="sq-titlebar__mark" aria-hidden />
-        <ProjectSwitcher store={store} />
+        <div className="sq-titlebar__brand">
+          <div className="sq-titlebar__mark" aria-hidden>⌘</div>
+          <span className="sq-titlebar__name">Story Queue</span>
+          <span className="sq-titlebar__divider" aria-hidden>/</span>
+          <ProjectSwitcher store={store} />
+        </div>
+        <div className="sq-titlebar__spacer" />
         <span
           className={`sq-pill ${
             !connected
@@ -114,17 +119,6 @@ export function AppShell({ store }: AppShellProps) {
                 : "Fable · idle"}
           {connected && liveWorkerCount > 0 && <span className="sq-pill__spinner" aria-hidden />}
         </span>
-        <div className="sq-titlebar__spacer" />
-        <button
-          type="button"
-          className="sq-iconbtn"
-          aria-label="Refresh"
-          title="Refresh"
-          onClick={() => void store.refreshViews()}
-          disabled={!connected || !attached}
-        >
-          ⟳
-        </button>
         <NotificationsBell store={store} />
         <button
           type="button"
