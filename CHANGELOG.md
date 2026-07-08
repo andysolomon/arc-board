@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/andysolomon/arc-board/compare/v1.9.0...v1.10.0) (2026-07-08)
+
+
+### Features
+
+* add headless arc-worker ([#38](https://github.com/andysolomon/arc-board/issues/38)) ([4c0966b](https://github.com/andysolomon/arc-board/commit/4c0966b41825b129fa9c2b4951e6a0f7e1c4fb04)), closes [#37](https://github.com/andysolomon/arc-board/issues/37)
+
 # [1.9.0](https://github.com/andysolomon/arc-board/compare/v1.8.0...v1.9.0) (2026-07-08)
 
 
