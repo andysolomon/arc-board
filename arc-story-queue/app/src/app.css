@@ -730,6 +730,19 @@ body {
 
 /* ── Generic view scaffolding ──────────────────────────────────────── */
 .sq-view { padding: var(--sq-6) var(--sq-7); }
+/* The board manages its own scrolling: it fills the main pane as a flex
+   column so the columns row is height-constrained and its horizontal
+   scrollbar stays pinned to the bottom of the visible pane. Without this the
+   view is a plain padded block that grows to content height, pushing the
+   horizontal scrollbar below the fold (only reachable via the outer vertical
+   scroll) — i.e. horizontal scroll appears broken. Other views keep the
+   .sq-scroll vertical scrolling from .sq-main. */
+.sq-view--board {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .sq-view__head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: var(--sq-4); margin-bottom: var(--sq-6);
