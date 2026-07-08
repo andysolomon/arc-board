@@ -7,7 +7,7 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { Handoff, Plan, RunRecord, Story } from "arc-contracts";
+import type { Handoff, IntakeDraftProposal, Plan, RunRecord, Story } from "arc-contracts";
 import { IntakeManager } from "./intake.js";
 import { QueueManager } from "./queue.js";
 import { SessionRegistry } from "./registry.js";
@@ -275,6 +275,23 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       const s = intake.draft(id, queue.repoOf(projectId));
       void sse.emitEvent({ kind: "drafted", id: s.id, wid: s.wid, title: s.title, column: s.column });
       return jsonResult(s);
+    }
+  );
+
+  server.registerTool(
+    "intake.createDrafts",
+    {
+      title: "Create intake drafts",
+      description:
+        "Persist selected intake proposals as backlog drafts. Proposals may come from Fable/the harness or the deterministic UI fallback; the daemon never invokes a model.",
+      inputSchema: { projectId: z.string(), drafts: z.array(z.custom<IntakeDraftProposal>()) },
+    },
+    async ({ projectId, drafts }) => {
+      const stories = intake.createDrafts(drafts, queue.repoOf(projectId));
+      for (const s of stories) {
+        void sse.emitEvent({ kind: "drafted", id: s.id, wid: s.wid, title: s.title, column: s.column });
+      }
+      return jsonResult(stories);
     }
   );
 

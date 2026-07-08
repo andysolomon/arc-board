@@ -80,4 +80,64 @@ describe("board intake seam", () => {
     // no lingering pending intake for this flow
     expect(store.getIntake().every((i) => i.status === "done")).toBe(true);
   });
+
+  it("generates deterministic fallback proposals without an attached model session", async () => {
+    const offline = new BoardStore("http://127.0.0.1:1/mcp", { storage: null, modelComplete: null });
+    const result = await offline.generateDraftProposals({ kind: "bug", text: "Checkout goes blank" });
+    expect(result.source).toBe("fallback");
+    expect(result.exploreNote).toMatch(/fallback/i);
+    expect(result.drafts[0]).toMatchObject({ type: "bug", include: true });
+    expect("draft" in result.drafts[0]).toBe(false);
+  });
+
+  it("generates fallback proposals and creates only selected backlog drafts", async () => {
+    const result = await store.generateDraftProposals({
+      kind: "feature",
+      text: "Add saved filters\nExport the audit log",
+    });
+    expect(result.source).toBe("fallback");
+    expect(result.drafts.length).toBe(2);
+
+    result.drafts[1].include = false;
+    const stories = await store.createDraftsFromProposals(result.drafts);
+    expect(stories).toHaveLength(1);
+    expect(stories[0]).toMatchObject({ draft: true, issue: null, column: "backlog" });
+    await expect(store.enqueueStory(stories[0].id)).rejects.toThrow(/draft/i);
+  });
+
+  it("uses the harness model when available, then persists selected drafts through the daemon", async () => {
+    const modelStore = new BoardStore(`http://127.0.0.1:${TEST_PORT}/mcp`, {
+      modelComplete: async (args) =>
+        args.system.includes("codex-explore")
+          ? JSON.stringify({ note: "scanned app", files: ["src/search.ts"] })
+          : JSON.stringify([
+              {
+                title: "Add smart saved search",
+                prio: "high",
+                size: "M",
+                epic: "Search",
+                userStory: "As a user, I want smart saved search so that I can resume common views.",
+                acceptance: ["Saved search appears in the menu"],
+                summary: "Users can save and reuse a generated search.",
+              },
+            ]),
+    });
+    await modelStore.connect();
+    await modelStore.registerAndAttach({
+      repo: `${repoId}-model`,
+      path: fixtureDir,
+      branch: "main",
+      model: "vitest-model",
+      pid: process.pid,
+    });
+
+    const result = await modelStore.generateDraftProposals({ kind: "feature", text: "saved search" });
+    expect(result.source).toBe("model");
+    expect(result.exploreNote).toContain("src/search.ts");
+    expect(result.drafts[0]).toMatchObject({ title: "Add smart saved search", priority: "high" });
+
+    const stories = await modelStore.createDraftsFromProposals(result.drafts);
+    expect(stories[0]).toMatchObject({ draft: true, issue: null, title: "Add smart saved search" });
+    await modelStore.close();
+  });
 });

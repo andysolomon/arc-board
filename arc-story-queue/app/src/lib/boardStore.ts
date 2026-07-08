@@ -2,6 +2,8 @@ import type {
   Access,
   AppConfig,
   Column,
+  IntakeDraftProposal,
+  IntakeGenerateResult,
   IntakeItem,
   IntakeKind,
   Project,
@@ -57,6 +59,18 @@ export interface Toast {
 export interface AppNotification extends Toast {
   ts: number;
   read: boolean;
+}
+
+export interface ModelCompleteArgs {
+  system: string;
+  max_tokens: number;
+  messages: Array<{ role: "user"; content: string }>;
+}
+export type ModelComplete = (args: ModelCompleteArgs) => Promise<string>;
+
+export interface BoardStoreOptions {
+  storage?: BoardStorage | null;
+  modelComplete?: ModelComplete | null;
 }
 
 export interface BoardState {
@@ -148,6 +162,167 @@ function parseToolResult<T>(result: unknown): T {
   const text = r.content?.find((c) => c.type === "text")?.text;
   if (!text) throw new Error("No text content in tool result");
   return JSON.parse(text) as T;
+}
+
+function defaultModelComplete(): ModelComplete | null {
+  const globals = globalThis as typeof globalThis & {
+    claude?: { complete?: ModelComplete };
+  };
+  return typeof globals.claude?.complete === "function" ? globals.claude.complete : null;
+}
+
+function cap(s: string): string {
+  const trimmed = s.trim().replace(/^[-*\d.)\s]+/, "");
+  return trimmed ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1) : "Untitled";
+}
+
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "draft";
+}
+
+function linesFromText(text: string, fallback: string[]): string[] {
+  const lines = text
+    .split(/\n|(?<=[.;])\s+/)
+    .map((s) => s.replace(/^[-*\d.)\s]+/, "").trim())
+    .filter((s) => s.length > 3);
+  return (lines.length ? lines : fallback).slice(0, 4);
+}
+
+function guessEpic(text: string): string {
+  if (/login|auth|password|sign|oauth/i.test(text)) return "Auth";
+  if (/export|report|csv|dashboard/i.test(text)) return "Reporting";
+  if (/api|endpoint|rate|limit|webhook/i.test(text)) return "API";
+  if (/test|ci|flak/i.test(text)) return "Quality";
+  if (/search|filter|paginat/i.test(text)) return "Search";
+  return "Product";
+}
+
+function priority(value: unknown, fallback: IntakeDraftProposal["priority"]): IntakeDraftProposal["priority"] {
+  return value === "high" || value === "med" || value === "low" ? value : fallback;
+}
+
+function size(value: unknown, fallback: IntakeDraftProposal["size"]): IntakeDraftProposal["size"] {
+  return value === "S" || value === "M" || value === "L" || value === "XL" ? value : fallback;
+}
+
+function parseJsonLike(raw: string): unknown {
+  try {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("{")) return JSON.parse(trimmed.match(/\{[\s\S]*\}/)?.[0] ?? trimmed);
+    if (trimmed.startsWith("[")) return JSON.parse(trimmed.match(/\[[\s\S]*\]/)?.[0] ?? trimmed);
+    const array = raw.match(/\[[\s\S]*\]/);
+    if (array) return JSON.parse(array[0]);
+    const object = raw.match(/\{[\s\S]*\}/);
+    if (object) return JSON.parse(object[0]);
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function fallbackDraftProposals(kind: IntakeKind, text: string): IntakeDraftProposal[] {
+  if (kind === "bug") {
+    const title = cap(text || "A screen shows an error instead of the expected content").slice(0, 72);
+    const severity = /crash|data loss|down|security|outage/i.test(title) ? "S1" : /broken|fail|error|throw|500|blank/i.test(title) ? "S2" : "S3";
+    const area = /api|backend|webhook|endpoint/i.test(title) ? "api" : "app";
+    return [{
+      include: true,
+      type: "bug",
+      title,
+      priority: severity === "S1" || severity === "S2" ? "high" : "med",
+      size: "M",
+      summary: `Investigate ${area} symptom and confirm the root cause before patching.`,
+      description: `Symptom: ${title}`,
+      epic: guessEpic(title),
+      taskClass: "bugfix",
+      tags: ["intake", "bug"],
+      criteria: ["Reported behavior is reproducible", "Root cause is documented", "Fix is covered by a regression check"],
+      bug: {
+        severity,
+        area,
+        steps: ["Navigate to the affected screen", "Perform the reported action", "Observe the incorrect result"],
+        rootCause: `src/${area}/${slug(title).slice(0, 16)}.ts:142 — suspected unhandled edge case; re-confirm before patching`,
+        fixOptions: ["Guard the failing path and render a safe result (recommended)", "Fix upstream so the invalid state cannot occur"],
+      },
+    }];
+  }
+
+  const defaults = kind === "prd"
+    ? ["Public rate-limit tracer bullet", "Read-path for the new report", "Write-path and persistence", "UI surface with empty state"]
+    : ["Let users sign in with Google", "Export activity as CSV", "Add empty states to the dashboard"];
+
+  return linesFromText(text, defaults).map((line, i) => {
+    const title = cap(line);
+    const isSlice = kind === "prd";
+    const isBugish = /fix|bug|broken|error/i.test(line);
+    return {
+      include: true,
+      type: isSlice ? "slice" : "story",
+      title,
+      priority: i === 0 ? "high" : i === 1 ? "med" : "low",
+      size: line.length > 64 ? "L" : line.length > 34 ? "M" : "S",
+      summary: isSlice ? `Ship an end-to-end tracer bullet for ${title.toLowerCase()}.` : `As a user, I want ${title.charAt(0).toLowerCase() + title.slice(1)} so that the workflow improves.`,
+      description: isSlice ? `Vertical slice through the stack for ${title}.` : `As a user, I want ${title.charAt(0).toLowerCase() + title.slice(1)} so that the product better fits my workflow.`,
+      epic: guessEpic(line),
+      taskClass: isBugish ? "bugfix" : "feature",
+      tags: ["intake", guessEpic(line)],
+      criteria: isSlice
+        ? [`End-to-end path works for ${title.toLowerCase()}`, "Covered by a focused test", "Demoable on its own"]
+        : [`${title} works end to end`, "No existing behavior regresses"],
+      slice: isSlice ? { afk: i === 0, blockedBy: i === 0 ? null : `slice ${i}`, userStoriesCovered: `story ${i + 1}` } : undefined,
+    } satisfies IntakeDraftProposal;
+  });
+}
+
+function normalizeModelDrafts(kind: IntakeKind, parsed: unknown): IntakeDraftProposal[] {
+  const arr = (Array.isArray(parsed) ? parsed : parsed ? [parsed] : []).slice(0, kind === "bug" ? 1 : 4) as Array<Record<string, unknown>>;
+  return arr.map((d, i) => {
+    const title = cap(String(d.title ?? (kind === "bug" ? "Bug" : kind === "prd" ? "Slice" : "Story")));
+    if (kind === "bug") {
+      const severity = ["S1", "S2", "S3", "S4"].includes(String(d.severity)) ? String(d.severity) as "S1" | "S2" | "S3" | "S4" : "S3";
+      const area = String(d.area ?? "app");
+      return {
+        include: true,
+        type: "bug",
+        title,
+        priority: priority(d.priority ?? d.prio, severity === "S1" || severity === "S2" ? "high" : "med"),
+        size: size(d.size, "M"),
+        summary: String(d.summary ?? d.context ?? `Fix ${title.toLowerCase()}.`),
+        description: String(d.description ?? d.context ?? title),
+        epic: String(d.epic ?? guessEpic(title)),
+        taskClass: "bugfix",
+        tags: ["intake", "bug"],
+        criteria: Array.isArray(d.acceptance) ? d.acceptance.map(String) : ["Regression is fixed"],
+        bug: {
+          severity,
+          area,
+          steps: Array.isArray(d.steps) ? d.steps.map(String) : ["Reproduce the reported action"],
+          rootCause: String(d.rootCause ?? "to be confirmed by arc-bug-fixer"),
+          fixOptions: Array.isArray(d.fixOptions) ? d.fixOptions.map(String) : ["Investigate and patch at the source"],
+        },
+      };
+    }
+
+    const isSlice = kind === "prd";
+    return {
+      include: true,
+      type: isSlice ? "slice" : "story",
+      title,
+      priority: priority(d.priority ?? d.prio, i === 0 ? "high" : "med"),
+      size: size(d.size, "M"),
+      summary: String(d.summary ?? d.userStory ?? d.userStoriesCovered ?? d.context ?? title),
+      description: String(d.description ?? d.userStory ?? d.context ?? title),
+      epic: String(d.epic ?? guessEpic(title)),
+      taskClass: String(d.taskClass) === "bugfix" ? "bugfix" : "feature",
+      tags: ["intake", String(d.epic ?? guessEpic(title))],
+      criteria: Array.isArray(d.acceptance) ? d.acceptance.map(String) : Array.isArray(d.criteria) ? d.criteria.map(String) : ["Works end to end"],
+      slice: isSlice ? {
+        afk: d.afk !== false,
+        blockedBy: d.blockedBy && String(d.blockedBy).toLowerCase() !== "null" ? String(d.blockedBy) : null,
+        userStoriesCovered: String(d.userStoriesCovered ?? `story ${i + 1}`),
+      } : undefined,
+    } satisfies IntakeDraftProposal;
+  });
 }
 
 function laneFromRoute(route: string): WorkerLane {
@@ -293,12 +468,21 @@ export class BoardStore {
   private transport: StreamableHTTPClientTransport | null = null;
   private notifySeq = 0;
   private readonly storage: BoardStorage | null;
+  private readonly modelComplete: ModelComplete | null;
 
   constructor(
     private readonly mcpUrl: string,
-    storage?: BoardStorage | null
+    storageOrOptions?: BoardStorage | null | BoardStoreOptions
   ) {
-    this.storage = storage === undefined ? defaultStorage() : storage;
+    const looksLikeOptions =
+      storageOrOptions !== null &&
+      typeof storageOrOptions === "object" &&
+      ("storage" in storageOrOptions || "modelComplete" in storageOrOptions);
+    const options = looksLikeOptions ? (storageOrOptions as BoardStoreOptions) : undefined;
+    this.storage = options
+      ? options.storage === undefined ? defaultStorage() : options.storage
+      : storageOrOptions === undefined ? defaultStorage() : (storageOrOptions as BoardStorage | null);
+    this.modelComplete = options?.modelComplete === undefined ? defaultModelComplete() : options.modelComplete;
   }
 
   getState(): BoardState {
@@ -525,6 +709,78 @@ export class BoardStore {
   async createDraftNow(args: { kind: IntakeKind; title: string; description: string }): Promise<Story> {
     const item = await this.enqueueIntake(args);
     return this.draftIntake(item.id);
+  }
+
+  async generateDraftProposals(args: { kind: IntakeKind; text: string }): Promise<IntakeGenerateResult> {
+    const text = args.text.trim();
+    const model = this.modelComplete;
+    const project = this.state.project;
+
+    if (model && project) {
+      try {
+        const exploreRaw = await model({
+          system:
+            "You are codex-explore, a read-only repository analyst. Output ONLY JSON: {\"note\":\"one short line naming what was scanned\",\"files\":[\"path\", up to 5]}.",
+          max_tokens: 400,
+          messages: [{ role: "user", content: `Repo: ${project.repo}\nRequest:\n${text || "(use sensible defaults)"}` }],
+        });
+        const explored = parseJsonLike(exploreRaw) as { note?: string; files?: string[] } | null;
+        const files = Array.isArray(explored?.files) ? explored.files.slice(0, 5) : [];
+        const exploreNote = explored?.note
+          ? `${explored.note}${files.length ? ` · ${files.slice(0, 3).join(", ")}` : ""}`
+          : files.length ? `scanned ${files.slice(0, 3).join(", ")}` : "";
+        const promptByKind: Record<IntakeKind, { system: string; body: string }> = {
+          feature: {
+            system:
+              "You are the arc-creating-user-stories drafting agent. Convert feature requests into up to 4 independently deliverable Gherkin user stories. Output ONLY a JSON array of objects with title, epic, prio, size, userStory, acceptance, and summary.",
+            body: `Features:\n${text || "Let users sign in with Google\nExport activity as CSV\nAdd empty states to the dashboard"}`,
+          },
+          prd: {
+            system:
+              "You are the arc-prd-to-issues drafting agent. Slice this PRD into up to 4 independently shippable tracer-bullet issues. Output ONLY a JSON array with title, epic, prio, size, afk, blockedBy, acceptance, userStoriesCovered, and summary.",
+            body: `PRD:\n${text || "A dashboard showing per-user activity with CSV export and a rate-limited public API."}`,
+          },
+          bug: {
+            system:
+              "You are the arc-bug-finder drafting agent. Draft ONE root-caused bug ticket. Output ONLY a JSON object with title, severity, area, steps, rootCause, fixOptions, acceptance, and summary.",
+            body: `Symptom:\n${text || "A screen shows a blank error instead of the expected content"}`,
+          },
+        };
+        const spec = promptByKind[args.kind];
+        const draftRaw = await model({
+          system: spec.system,
+          max_tokens: 2000,
+          messages: [{ role: "user", content: `${spec.body}${files.length ? `\n\nGround items in these files where relevant: ${files.join(", ")}` : ""}` }],
+        });
+        const drafts = normalizeModelDrafts(args.kind, parseJsonLike(draftRaw));
+        if (drafts.length) return { source: "model", exploreNote, drafts };
+      } catch {
+        // Fall through to deterministic proposals when the live harness cannot answer.
+      }
+    }
+
+    return {
+      source: "fallback",
+      exploreNote: model && !project ? "Attach a Fable session to enable model-backed drafting" : "deterministic fallback used",
+      drafts: fallbackDraftProposals(args.kind, text),
+    };
+  }
+
+  async createDraftsFromProposals(drafts: IntakeDraftProposal[]): Promise<Story[]> {
+    const project = this.state.project;
+    if (!project) throw new Error("No project attached");
+    const selected = drafts.filter((draft) => draft.include);
+    if (selected.length === 0) return [];
+    const client = this.ensureClient();
+    const result = await client.callTool(
+      { name: "intake.createDrafts", arguments: { projectId: project.id, drafts: selected } },
+      CallToolResultSchema
+    );
+    const stories = parseToolResult<Story[]>(result);
+    this.reduce((state) => stories.reduce((s, story) => upsertStoryInState(s, story), state));
+    await this.hydrate();
+    this.notify("success", `Added ${stories.length} draft${stories.length === 1 ? "" : "s"} to Backlog`);
+    return stories;
   }
 
   getIntake(): IntakeItem[] {
