@@ -1,12 +1,10 @@
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { CallToolResultSchema, LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { Handoff, Project, RouteId, Story } from "arc-contracts";
-
-type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+import { callTool, createDaemonClient, localBranch, localRepoId, runGit } from "./daemon-client.js";
 
 type StoryLifecycleEvent = {
   type?: "story.event";
@@ -52,42 +50,6 @@ interface StoryExecutor {
   name: string;
   model: string;
   execute(ctx: ExecutionContext): Promise<void>;
-}
-
-function parseToolResult<T>(result: unknown): T {
-  const r = result as ToolResult;
-  const text = r.content?.find((c) => c.type === "text")?.text;
-  if (r.isError) throw new Error(text ?? "MCP tool returned an error");
-  if (!text) throw new Error("No text content in tool result");
-  return JSON.parse(text) as T;
-}
-
-async function callTool<T>(client: Client, name: string, args: Record<string, unknown> = {}): Promise<T> {
-  const result = await client.callTool({ name, arguments: args }, CallToolResultSchema);
-  return parseToolResult<T>(result);
-}
-
-function runGit(cwd: string, args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-}
-
-function localRepoId(cwd: string): string {
-  try {
-    const remote = runGit(cwd, ["remote", "get-url", "origin"]);
-    const match = remote.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/);
-    if (match) return match[1];
-  } catch {
-    // Fall back to an ownerless local repo id below.
-  }
-  return `local/${basename(resolve(cwd))}`;
-}
-
-function localBranch(cwd: string): string {
-  try {
-    return runGit(cwd, ["branch", "--show-current"]) || "main";
-  } catch {
-    return "main";
-  }
 }
 
 function promptForStory(story: Story): string {
@@ -419,8 +381,7 @@ async function blockStory(client: Client, story: Story, error: unknown): Promise
 export async function runArcWorker(opts: ArcWorkerOptions): Promise<ArcWorkerResult> {
   const log = opts.log ?? (() => undefined);
   const executor = createExecutor(opts);
-  const transport = new StreamableHTTPClientTransport(new URL(opts.url));
-  const client = new Client({ name: "arc-worker", version: "0.1.0" });
+  const { client, transport } = createDaemonClient(opts.url, { name: "arc-worker" });
   const active = new Set<string>();
   const completed: ArcWorkerResult["stories"] = [];
   let projectId = "";

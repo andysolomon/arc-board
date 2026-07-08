@@ -1,10 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { resolve } from "node:path";
 import type { AnnotateOutcome, Handoff, Project, RunRecord, Story } from "arc-contracts";
+import { callTool, localBranch, localRepoId, withDaemonClient } from "./daemon-client.js";
 
 /**
  * Fable pull-loop glue.
@@ -49,55 +46,6 @@ export interface FableCompleteOptions {
   pr: string;
   runs: RunRecord[];
   outcome?: AnnotateOutcome;
-}
-
-type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean };
-
-function parseToolResult<T>(result: unknown): T {
-  const r = result as ToolResult;
-  const text = r.content?.find((c) => c.type === "text")?.text;
-  if (r.isError) throw new Error(text ?? "MCP tool returned an error");
-  if (!text) throw new Error("No text content in tool result");
-  return JSON.parse(text) as T;
-}
-
-function runGit(cwd: string, args: string[]): string {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-}
-
-function localRepoId(cwd: string): string {
-  try {
-    const remote = runGit(cwd, ["remote", "get-url", "origin"]);
-    const match = remote.match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?$/);
-    if (match) return match[1];
-  } catch {
-    // No origin remote; use a stable local id for development fixtures.
-  }
-  return `local/${basename(resolve(cwd))}`;
-}
-
-function localBranch(cwd: string): string {
-  try {
-    return runGit(cwd, ["branch", "--show-current"]) || "main";
-  } catch {
-    return "main";
-  }
-}
-
-async function withClient<T>(url: string, fn: (client: Client) => Promise<T>): Promise<T> {
-  const transport = new StreamableHTTPClientTransport(new URL(url));
-  const client = new Client({ name: "fable-pull-loop", version: "0.1.0" });
-  await client.connect(transport);
-  try {
-    return await fn(client);
-  } finally {
-    await client.close();
-  }
-}
-
-async function callTool<T>(client: Client, name: string, args: Record<string, unknown> = {}): Promise<T> {
-  const result = await client.callTool({ name, arguments: args }, CallToolResultSchema);
-  return parseToolResult<T>(result);
 }
 
 function buildPrompt(project: Project | { id: string }, story: Story | null, url: string): string {
@@ -154,7 +102,7 @@ export async function runFablePullLoop(opts: FablePullLoopOptions): Promise<Fabl
   const log = opts.log ?? (() => undefined);
   const cwd = resolve(opts.path ?? process.cwd());
 
-  return withClient(opts.url, async (client) => {
+  return withDaemonClient(opts.url, { name: "fable-pull-loop" }, async (client) => {
     let project: Project | { id: string };
     if (opts.projectId) {
       project = { id: opts.projectId };
@@ -190,7 +138,7 @@ export async function runFablePullLoop(opts: FablePullLoopOptions): Promise<Fabl
 /** Stream one progress line from a live Fable session. */
 export async function streamFableUpdate(opts: FableUpdateOptions): Promise<{ ok: true }> {
   const route = opts.route ?? "fable";
-  return withClient(opts.url, async (client) =>
+  return withDaemonClient(opts.url, { name: "fable-pull-loop" }, async (client) =>
     callTool<{ ok: true }>(client, "story.update", {
       id: opts.id,
       route,
@@ -202,7 +150,7 @@ export async function streamFableUpdate(opts: FableUpdateOptions): Promise<{ ok:
 
 /** Complete a story with the structured handoff produced by the live Fable session. */
 export async function completeFableStory(opts: FableCompleteOptions): Promise<{ ok: true }> {
-  return withClient(opts.url, async (client) =>
+  return withDaemonClient(opts.url, { name: "fable-pull-loop" }, async (client) =>
     callTool<{ ok: true }>(client, "story.complete", {
       id: opts.id,
       handoff: opts.handoff,
