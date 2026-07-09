@@ -1,3 +1,10 @@
+## [1.16.5](https://github.com/andysolomon/arc-board/compare/v1.16.4...v1.16.5) (2026-07-09)
+
+
+### Bug Fixes
+
+* make board app shell responsive to the window size ([#70](https://github.com/andysolomon/arc-board/issues/70)) ([9d6df72](https://github.com/andysolomon/arc-board/commit/9d6df722521fc4788ff23440d8e93ad26c302ec5)), closes [#65](https://github.com/andysolomon/arc-board/issues/65) [#69](https://github.com/andysolomon/arc-board/issues/69)
+
 ## [1.16.4](https://github.com/andysolomon/arc-board/compare/v1.16.3...v1.16.4) (2026-07-09)
 
 
