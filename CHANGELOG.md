@@ -1,3 +1,10 @@
+## [1.16.7](https://github.com/andysolomon/arc-board/compare/v1.16.6...v1.16.7) (2026-07-09)
+
+
+### Bug Fixes
+
+* harden desktop shell viewport sizing ([#74](https://github.com/andysolomon/arc-board/issues/74)) ([3327800](https://github.com/andysolomon/arc-board/commit/3327800e0548c085287f2fec4f8add327d8feea2)), closes [#72](https://github.com/andysolomon/arc-board/issues/72)
+
 ## [1.16.6](https://github.com/andysolomon/arc-board/compare/v1.16.5...v1.16.6) (2026-07-09)
 
 
