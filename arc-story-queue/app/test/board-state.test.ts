@@ -6,6 +6,7 @@ import type { Project, Story } from "arc-contracts";
 import {
   activeRepoFilter,
   applyStoryUpdate,
+  type BoardState,
   createInitialBoardState,
   liveWorkerCount,
   reservedWorkerCount,
@@ -75,7 +76,7 @@ describe("board state reducers (transport-free)", () => {
   });
 
   it("selects and orders stories per column, scoped to the active repo", () => {
-    let state = { ...createInitialBoardState(), project };
+    let state: BoardState = { ...createInitialBoardState(), project };
     state = upsertStoryInState(state, story({ id: "b", wid: "W-000003" }));
     state = upsertStoryInState(state, story({ id: "a", wid: "W-000002" }));
     state = upsertStoryInState(state, story({ id: "other", wid: "W-000009", repo: "other/repo" }));
