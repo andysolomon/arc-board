@@ -1,3 +1,10 @@
+## [1.16.4](https://github.com/andysolomon/arc-board/compare/v1.16.3...v1.16.4) (2026-07-09)
+
+
+### Bug Fixes
+
+* match prototype color-coded delegation contract list (W-000025) ([#68](https://github.com/andysolomon/arc-board/issues/68)) ([6980e41](https://github.com/andysolomon/arc-board/commit/6980e4128add64d02a39ff27a81bcf0b2cc4fd39)), closes [#62](https://github.com/andysolomon/arc-board/issues/62)
+
 ## [1.16.3](https://github.com/andysolomon/arc-board/compare/v1.16.2...v1.16.3) (2026-07-08)
 
 
