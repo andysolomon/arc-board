@@ -14,6 +14,7 @@ import {
 } from "../lib/boardStore";
 import { useDialog } from "../lib/useDialog";
 import { buildContractRows } from "../lib/delegationContract";
+import { Markdown } from "./Markdown";
 
 interface StoryDrawerProps {
   store: BoardStore;
@@ -220,7 +221,7 @@ function DelegationContract({ story }: { story: Story }) {
             style={{ "--sq-contract-c": row.color } as CSSProperties}
           >
             <div className="sq-contract-row__label">{row.label}</div>
-            <div className="sq-contract-row__value">{row.value}</div>
+            <Markdown className="sq-contract-row__value" text={row.value} />
           </div>
         ))}
       </div>
