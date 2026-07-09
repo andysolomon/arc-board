@@ -1,3 +1,10 @@
+## [1.16.6](https://github.com/andysolomon/arc-board/compare/v1.16.5...v1.16.6) (2026-07-09)
+
+
+### Bug Fixes
+
+* render delegation contract Outcome markdown instead of raw text (W-000026) ([#73](https://github.com/andysolomon/arc-board/issues/73)) ([43f2a52](https://github.com/andysolomon/arc-board/commit/43f2a5240f9bb81539120e37c6b7be66121d5535)), closes [#71](https://github.com/andysolomon/arc-board/issues/71)
+
 ## [1.16.5](https://github.com/andysolomon/arc-board/compare/v1.16.4...v1.16.5) (2026-07-09)
 
 
