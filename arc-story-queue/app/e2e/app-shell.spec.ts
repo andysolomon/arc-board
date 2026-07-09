@@ -22,6 +22,39 @@ test.describe("app shell fills the window (wide viewport)", () => {
     await expect(page.locator(".sq-shell")).toBeVisible();
   });
 
+  test("desktop webview root and app shell occupy the viewport", async ({ page }) => {
+    const rootMetrics = await page.evaluate(() => {
+      const html = document.documentElement;
+      const body = document.body;
+      const root = document.getElementById("root")!;
+      const appShell = document.querySelector<HTMLElement>(".app-shell")!;
+      const appBox = appShell.getBoundingClientRect();
+      const shellBodyMinWidth = getComputedStyle(
+        document.querySelector<HTMLElement>(".sq-shell__body")!,
+      ).minWidth;
+
+      return {
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        htmlHeight: html.clientHeight,
+        bodyHeight: body.clientHeight,
+        rootHeight: root.clientHeight,
+        appWidth: appBox.width,
+        appHeight: appBox.height,
+        shellBodyMinWidth,
+      };
+    });
+
+    expect(rootMetrics.viewportWidth).toBe(VIEWPORT.width);
+    expect(rootMetrics.viewportHeight).toBe(VIEWPORT.height);
+    expect(rootMetrics.htmlHeight).toBe(VIEWPORT.height);
+    expect(rootMetrics.bodyHeight).toBe(VIEWPORT.height);
+    expect(rootMetrics.rootHeight).toBe(VIEWPORT.height);
+    expect(Math.abs(rootMetrics.appWidth - VIEWPORT.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(rootMetrics.appHeight - VIEWPORT.height)).toBeLessThanOrEqual(1);
+    expect(rootMetrics.shellBodyMinWidth).toBe("0px");
+  });
+
   test("shell grows to fill the padded viewport rather than a fixed 1460×920 card", async ({
     page,
   }) => {
