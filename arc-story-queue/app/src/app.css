@@ -20,24 +20,12 @@ body {
 }
 
 .app-shell {
-  min-height: 100vh;
+  /* Fill the window so the shell is responsive: lock to the viewport height and
+     stretch the shell to fill the padded area rather than centering a
+     fixed-size card. The padding preserves the floating-window margin. */
+  height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 26px;
-}
-
-.board-view {
-  width: min(1460px, 97vw);
-  height: min(920px, 93vh);
-  display: flex;
-  flex-direction: column;
-  background: var(--sq-window);
-  backdrop-filter: var(--sq-blur);
-  -webkit-backdrop-filter: var(--sq-blur);
-  border: 1px solid var(--sq-border);
-  border-radius: var(--sq-r-window);
-  overflow: hidden;
 }
 
 .board-view__header {
@@ -583,8 +571,13 @@ body {
 /* ── App shell: window frame + titlebar + nav + main ───────────────── */
 .sq-shell {
   position: relative;
-  width: min(1460px, 97vw);
-  height: min(920px, 93vh);
+  /* Grow to fill the padded viewport instead of a fixed 1460×920 card, so the
+     shell tracks the window size. min-width/min-height: 0 lets it shrink below
+     its content on small windows so the board's internal horizontal scroll
+     (see .board-view__columns, issue #65) still engages. */
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--sq-window);
