@@ -192,6 +192,10 @@ export class StoryStore {
     return row ? (JSON.parse(row.data) as Handoff) : null;
   }
 
+  deleteHandoff(storyId: string): void {
+    this.db.prepare("DELETE FROM handoffs WHERE story_id = ?").run(storyId);
+  }
+
   getConfig(): AppConfig {
     const rows = this.db.prepare("SELECT key, value FROM config").all() as Array<{
       key: string;

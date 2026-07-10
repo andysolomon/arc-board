@@ -69,6 +69,17 @@ function completedHandoff(): Handoff {
   };
 }
 
+function blockedHandoff(): Handoff {
+  return {
+    status: "blocked",
+    summary: "Blocked on verification",
+    changes: ["README.md"],
+    verification: ["vitest lifecycle.test.ts"],
+    risks: ["flaky test"],
+    next_actions: ["retry"],
+  };
+}
+
 function runRecord(storyId: string): RunRecord {
   return {
     id: `run-${storyId}`,
@@ -228,5 +239,75 @@ describe("StoryLifecycle", () => {
     const { lifecycle } = makeLifecycle(worktreeRoot);
 
     await expect(lifecycle.start("missing-story")).rejects.toThrow("Unknown story: missing-story");
+  });
+
+  it("start clears a stale handoff from a previous blocked run", async () => {
+    const { repo, worktreeRoot } = makeGitRepo();
+    const { store, registry, lifecycle, queue } = makeLifecycle(worktreeRoot);
+
+    const session = registry.register({ repo: "test/repo", path: repo, branch: "main", model: "vitest", pid: 1 });
+    const project = registry.attach(session.id, worktreeRoot);
+    const story = makeStory();
+    store.upsertStory(story);
+    store.enqueue(story.id);
+
+    await lifecycle.dispatch(project.id);
+    await lifecycle.block({ id: story.id, handoff: blockedHandoff(), outcome: "blocked" });
+    expect(store.getHandoff(story.id)).not.toBeNull();
+    expect(queue.detail(story.id).handoff?.status).toBe("blocked");
+
+    await lifecycle.start(story.id);
+
+    expect(store.getHandoff(story.id)).toBeNull();
+    expect(queue.detail(story.id).handoff).toBeNull();
+  });
+
+  it("dispatch clears a stale handoff when re-queuing and handing out a story", async () => {
+    const { repo, worktreeRoot } = makeGitRepo();
+    const { store, registry, lifecycle, queue } = makeLifecycle(worktreeRoot);
+
+    const session = registry.register({ repo: "test/repo", path: repo, branch: "main", model: "vitest", pid: 1 });
+    const project = registry.attach(session.id, worktreeRoot);
+    const story = makeStory();
+    store.upsertStory(story);
+    store.saveHandoff(story.id, blockedHandoff());
+    store.enqueue(story.id);
+
+    expect(store.getHandoff(story.id)).not.toBeNull();
+
+    const dispatched = await lifecycle.dispatch(project.id);
+
+    expect(dispatched.value?.id).toBe(story.id);
+    expect(store.getHandoff(story.id)).toBeNull();
+    expect(queue.detail(story.id).handoff).toBeNull();
+  });
+
+  it("block and complete still persist handoffs for detail hydration", async () => {
+    const { repo, worktreeRoot } = makeGitRepo();
+    const { store, registry, lifecycle, queue } = makeLifecycle(worktreeRoot);
+
+    const session = registry.register({ repo: "test/repo", path: repo, branch: "main", model: "vitest", pid: 1 });
+    const project = registry.attach(session.id, worktreeRoot);
+    const story = makeStory({ id: "handoff-persist" });
+    store.upsertStory(story);
+    store.enqueue(story.id);
+
+    await lifecycle.dispatch(project.id);
+    const blocked = blockedHandoff();
+    await lifecycle.block({ id: story.id, handoff: blocked, outcome: "blocked" });
+    expect(queue.detail(story.id).handoff).toEqual(blocked);
+
+    await lifecycle.start(story.id);
+    expect(queue.detail(story.id).handoff).toBeNull();
+
+    const completed = completedHandoff();
+    await lifecycle.complete({
+      id: story.id,
+      handoff: completed,
+      pr: "local://arc-story-queue/W-000001",
+      runs: [runRecord(story.id)],
+      outcome: "accepted",
+    });
+    expect(queue.detail(story.id).handoff).toEqual(completed);
   });
 });
