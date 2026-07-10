@@ -701,6 +701,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   const prReconcileTimer = prReconcileIntervalMs > 0
     ? setInterval(() => {
         void ctx.queue.reconcileReviewPrs();
+        void ctx.queue.reconcileInProgressIssues();
       }, prReconcileIntervalMs)
     : undefined;
   if (

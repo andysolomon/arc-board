@@ -37,6 +37,12 @@ export interface PrReconcileResult {
   errors: Array<{ id: string; message: string }>;
 }
 
+export interface IssueReconcileResult {
+  checked: number;
+  purged: string[];
+  errors: Array<{ id: string; message: string }>;
+}
+
 export interface QueueDeps {
   store: StoryStore;
   registry: SessionRegistry;
@@ -438,6 +444,58 @@ export class QueueManager {
             wid: updated.wid,
             title: updated.title,
             column: updated.column,
+          });
+        }
+      } catch (error) {
+        result.errors.push({ id: story.id, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    return result;
+  }
+
+  private issueSelector(issue: string): string {
+    const trimmed = issue.trim();
+    const hash = trimmed.match(/#(\d+)/);
+    if (hash) return hash[1];
+    const issueUrl = trimmed.match(/\/issues\/(\d+)(?:\b|$)/);
+    if (issueUrl) return issueUrl[1];
+    return trimmed;
+  }
+
+  private isGithubInProgressIssue(story: Story): boolean {
+    const issue = story.issue?.trim();
+    const isGithubRepo = !!story.repo && !story.repo.startsWith("local/");
+    return story.column === "in_progress" && !!issue && isGithubRepo;
+  }
+
+  private viewIssue(story: Story): { state: string } {
+    const issue = story.issue?.trim();
+    if (!issue) throw new Error(`Story ${story.id} has no issue to inspect`);
+
+    const args = ["issue", "view", this.issueSelector(issue), "--json", "state", "--repo", story.repo];
+    const raw = this.runCommand("gh", args, { encoding: "utf8", stdio: "pipe" }).toString();
+    return JSON.parse(raw) as { state: string };
+  }
+
+  async reconcileInProgressIssues(): Promise<IssueReconcileResult> {
+    const result: IssueReconcileResult = { checked: 0, purged: [], errors: [] };
+    const inProgressStories = this.store.listStories().filter((story) => this.isGithubInProgressIssue(story));
+
+    for (const story of inProgressStories) {
+      result.checked += 1;
+      try {
+        const issue = this.viewIssue(story);
+        if (issue.state.toUpperCase() === "CLOSED") {
+          this.cleanupWorktree(story);
+          this.store.dequeue(story.id);
+          this.store.deleteStory(story.id);
+          result.purged.push(story.id);
+          await this.sse.emitEvent({
+            kind: "purged",
+            id: story.id,
+            wid: story.wid,
+            title: story.title,
           });
         }
       } catch (error) {
