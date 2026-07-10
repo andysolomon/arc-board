@@ -1,5 +1,6 @@
 import type { BoardStore, BoardStory } from "../lib/boardStore";
 import { routeColor, routeLabel } from "../lib/boardStore";
+import { dispatchBlockReason } from "arc-contracts";
 
 interface QueueViewProps {
   store: BoardStore;
@@ -107,7 +108,9 @@ export function QueueView({ store, onOpen }: QueueViewProps) {
         {queued.length === 0 && (
           <div className="sq-empty">Nothing queued — file a draft, then enqueue it from the Board.</div>
         )}
-        {queued.map((story, i) => (
+        {queued.map((story, i) => {
+          const waitReason = dispatchBlockReason(story, running);
+          return (
           <div key={story.id} className="sq-qrow">
             <span className="sq-qrow__pos">#{i + 1}</span>
             <button
@@ -117,6 +120,7 @@ export function QueueView({ store, onOpen }: QueueViewProps) {
             >
               <span className="sq-qrow__title">{story.title}</span>
               <span className="sq-qrow__meta">
+                {waitReason && <span className="sq-qrow__wait">{waitReason}</span>}
                 {story.issue && <span className="sq-mono">{story.issue}</span>}
                 <span className="sq-mono">{story.taskClass}</span>
                 <span className="sq-mono">{story.branch}</span>
@@ -143,7 +147,8 @@ export function QueueView({ store, onOpen }: QueueViewProps) {
               </button>
             </span>
           </div>
-        ))}
+        );
+        })}
       </section>
     </div>
   );
