@@ -1,3 +1,11 @@
+# [1.28.0](https://github.com/andysolomon/arc-board/compare/v1.27.1...v1.28.0) (2026-07-10)
+
+
+### Features
+
+* executor honors the story orchestration plan ([#128](https://github.com/andysolomon/arc-board/issues/128)) ([b4dbbb7](https://github.com/andysolomon/arc-board/commit/b4dbbb7b7153e9136bb8042fa0ec306ca940a40f)), closes [#103](https://github.com/andysolomon/arc-board/issues/103)
+* orchestration status on queued cards and plan detail in drawer ([#129](https://github.com/andysolomon/arc-board/issues/129)) ([86f2b39](https://github.com/andysolomon/arc-board/commit/86f2b3966cc3aba1a16582fa23262c6c56272c8f)), closes [#104](https://github.com/andysolomon/arc-board/issues/104)
+
 ## [1.27.1](https://github.com/andysolomon/arc-board/compare/v1.27.0...v1.27.1) (2026-07-10)
 
 
