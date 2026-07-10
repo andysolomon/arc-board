@@ -27,6 +27,50 @@ describe("merge-errors", () => {
     expect(error.actions.some((action) => /branch protection/i.test(action))).toBe(true);
   });
 
+  it("classifies Merge Gate is expected as checks pending", () => {
+    const error = boardActionErrorFromMergeFailure(
+      'gh pr merge failed: Required status check "Merge Gate" is expected',
+      {
+        mergeStateStatus: "BLOCKED",
+        failingChecks: [],
+        pendingChecks: [],
+      }
+    );
+    expect(error.code).toBe("checks_pending");
+    expect(error.title).toBe("Checks still running");
+    expect(error.retryable).toBe(true);
+    expect(error.actions).toEqual([
+      "Wait for CI checks to complete",
+      "Open the PR on GitHub to watch check progress",
+    ]);
+    expect(error.actions.some((action) => /conventional prefix/i.test(action))).toBe(false);
+  });
+
+  it("classifies rollup FAILURE as checks_failed but IN_PROGRESS as checks_pending", () => {
+    const failed = boardActionErrorFromMergeFailure("PR merge blocked", {
+      mergeStateStatus: "BLOCKED",
+      failingChecks: ["commitlint"],
+      pendingChecks: [],
+    });
+    expect(failed.code).toBe("checks_failed");
+    expect(failed.title).toBe("Required checks failed");
+
+    const queued = boardActionErrorFromMergeFailure("PR merge blocked", {
+      mergeStateStatus: "BLOCKED",
+      failingChecks: [],
+      pendingChecks: ["Merge Gate"],
+    });
+    expect(queued.code).toBe("checks_pending");
+    expect(queued.title).toBe("Checks still running");
+
+    const inProgress = boardActionErrorFromMergeFailure("PR merge blocked", {
+      mergeStateStatus: "BLOCKED",
+      failingChecks: [],
+      pendingChecks: ["Test arc-story-queue"],
+    });
+    expect(inProgress.code).toBe("checks_pending");
+  });
+
   it("classifies Merge Gate failures with actionable guidance", () => {
     const error = boardActionErrorFromMergeFailure("Required status check \"Merge Gate\" is failing", {
       mergeStateStatus: "BLOCKED",

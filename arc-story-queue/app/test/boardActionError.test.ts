@@ -9,6 +9,23 @@ describe("boardActionError", () => {
     expect(isMachineDetail("PR title must use a conventional prefix")).toBe(false);
   });
 
+  it("formatBoardActionError surfaces wait-for-CI actions for checks_pending", () => {
+    const error: BoardActionError = {
+      code: "checks_pending",
+      title: "Checks still running",
+      detail: 'mergeStateStatus=BLOCKED; Required status check "Merge Gate" is expected',
+      actions: ["Wait for CI checks to complete", "Open the PR on GitHub to watch check progress"],
+      retryable: true,
+      raw: 'gh pr merge failed: Required status check "Merge Gate" is expected',
+    };
+    const formatted = formatBoardActionError(error);
+    expect(formatted.title).toBe("Checks still running");
+    expect(formatted.actions).toEqual(error.actions);
+    expect(formatted.actions.some((a) => /conventional prefix/i.test(a))).toBe(false);
+    expect(formatted.actions.some((a) => /wait for ci/i.test(a))).toBe(true);
+    expect(formatted.technicalDetail).toBe(error.raw);
+  });
+
   it("formatBoardActionError keeps actions separate from machine detail", () => {
     const error: BoardActionError = {
       code: "checks_failed",

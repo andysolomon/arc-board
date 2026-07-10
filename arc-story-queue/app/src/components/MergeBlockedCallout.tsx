@@ -1,13 +1,13 @@
 import type { BoardActionError, Story } from "arc-contracts";
 import { formatBoardActionError } from "../lib/boardActionError";
 
-const WARN_CODES = new Set([
-  "checks_failed",
-  "checks_pending",
-  "branch_policy",
-  "behind_base",
-  "timeout",
-]);
+const WARN_CODES = new Set(["checks_failed", "branch_policy", "behind_base", "timeout"]);
+
+function calloutVariant(code: BoardActionError["code"]): "info" | "warn" | "danger" {
+  if (code === "checks_pending") return "info";
+  if (WARN_CODES.has(code)) return "warn";
+  return "danger";
+}
 
 function isRealPrUrl(pr?: string | null): pr is string {
   return !!pr && !pr.startsWith("local://") && /^https?:\/\//i.test(pr);
@@ -21,7 +21,7 @@ interface MergeBlockedCalloutProps {
 
 export function MergeBlockedCallout({ error, story, onRetry }: MergeBlockedCalloutProps) {
   const formatted = formatBoardActionError(error);
-  const variant = WARN_CODES.has(error.code) ? "warn" : "danger";
+  const variant = calloutVariant(error.code);
 
   return (
     <div className={`sq-merge-callout sq-merge-callout--${variant}`} role="alert">

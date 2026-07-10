@@ -1012,6 +1012,7 @@ body {
   margin-top: var(--sq-4); border-radius: var(--sq-r-control);
   padding: var(--sq-3) var(--sq-4); font-size: 12px; line-height: 1.5;
 }
+.sq-merge-callout--info,
 .sq-merge-callout--warn {
   color: var(--sq-running);
   background: rgba(245, 181, 68, 0.1);
