@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Project, QueueNextResult } from "arc-contracts";
 import { BoardStore, resolveTauriHttpFetch } from "../src/lib/boardStore";
+import { lifecycleActivityMeta, lifecycleToast } from "../src/lib/notifications";
 
 describe("MCP fetch selection", () => {
   it("uses the browser fetch path outside Tauri", async () => {
@@ -9,6 +10,12 @@ describe("MCP fetch selection", () => {
 });
 
 describe("notifications + toasts (store logic)", () => {
+  it("maps planner lifecycle events to visible activity and toast feedback", () => {
+    const event = { kind: "planned" as const, id: "story-1", wid: "W-000043", title: "Plan safely", column: "queued" };
+    expect(lifecycleActivityMeta(event)).toMatchObject({ subject: "Planner", tone: "planned" });
+    expect(lifecycleToast(event)).toEqual({ kind: "success", msg: "Plan ready: W-000043 — Plan safely" });
+  });
+
   it("notifies visibly when queue.next is waiting for orchestration plans", async () => {
     const sync = {
       call: vi.fn(async (tool: string) => {

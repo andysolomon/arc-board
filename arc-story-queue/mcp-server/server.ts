@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { AnnotateOutcome, FsDirListing, Handoff, IntakeDraftProposal, Plan, RunRecord, Story } from "arc-contracts";
 import { IntakeManager } from "./intake.js";
 import { StoryLifecycle, type LifecycleResult } from "./lifecycle.js";
+import { PlannerWorker } from "./planner-worker.js";
 import { QueueManager } from "./queue.js";
 import { SessionRegistry } from "./registry.js";
 import { SseHub } from "./sse.js";
@@ -25,6 +26,8 @@ export interface DaemonOptions {
   dbPath?: string;
   worktreeRoot?: string;
   maxParallel?: number;
+  /** Read-only analysis concurrency, intentionally independent of execution maxParallel. */
+  plannerMaxParallel?: number;
   prReconcileIntervalMs?: number;
   doneRetentionMs?: number;
   pingIntervalMs?: number;
@@ -39,6 +42,7 @@ export interface DaemonHandle {
   intake: IntakeManager;
   registry: SessionRegistry;
   sse: SseHub;
+  planner: PlannerWorker;
   close(): Promise<void>;
 }
 
@@ -129,12 +133,16 @@ function createSharedContext(opts: DaemonOptions) {
   );
   const intake = new IntakeManager({ store });
   const lifecycle = new StoryLifecycle(queue, intake);
+  const planner = new PlannerWorker(
+    { queue, registry, sse },
+    { maxConcurrent: opts.plannerMaxParallel ?? 2 }
+  );
   const fsRoot = opts.fsRoot ?? process.env.ARC_BOARD_FS_ROOT ?? homedir();
-  return { store, registry, sse, queue, lifecycle, intake, fsRoot };
+  return { store, registry, sse, queue, lifecycle, intake, planner, fsRoot };
 }
 
 function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedContext>): void {
-  const { queue, lifecycle, intake, registry, store, sse, fsRoot } = ctx;
+  const { queue, lifecycle, intake, registry, store, sse, planner, fsRoot } = ctx;
 
   server.registerTool(
     "session.register",
@@ -311,7 +319,11 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Attach a discovered session as a project.",
       inputSchema: { sessionId: z.string() },
     },
-    async ({ sessionId }) => jsonResult(await queue.attach(sessionId))
+    async ({ sessionId }) => {
+      const project = await queue.attach(sessionId);
+      planner.catchUp();
+      return jsonResult(project);
+    }
   );
 
   server.registerTool(
@@ -606,6 +618,8 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   const port = opts.port ?? 7420;
   const host = opts.host ?? "127.0.0.1";
   const ctx = createSharedContext(opts);
+  // Subscription deliberately precedes the durable catch-up scan.
+  ctx.planner.start();
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const sessionServers = new Map<string, McpServer>();
 
@@ -753,7 +767,9 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     intake: ctx.intake,
     registry: ctx.registry,
     sse: ctx.sse,
+    planner: ctx.planner,
     close: async () => {
+      await ctx.planner.stop();
       for (const t of transports.values()) await t.close();
       if (prReconcileTimer) clearInterval(prReconcileTimer);
       if (pingTimer) clearInterval(pingTimer);

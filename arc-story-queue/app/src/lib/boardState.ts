@@ -62,6 +62,9 @@ export interface StoryUpdateEvent {
 
 export type LifecycleKind =
   | "queued"
+  | "planning"
+  | "planned"
+  | "planning-failed"
   | "started"
   | "review"
   | "done"

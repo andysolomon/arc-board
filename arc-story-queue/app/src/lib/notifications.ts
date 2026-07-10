@@ -46,6 +46,9 @@ export function lifecycleActivityMeta(evt: StoryLifecycleEvent): ActivityMeta {
   const label = lifecycleActivityLabel(evt);
   const map: Record<LifecycleKind, ActivityMeta> = {
     queued: { icon: "➕", subject: "Queue", text: `queued ${label}`, tone: "queued" },
+    planning: { icon: "◌", subject: "Planner", text: `analyzing ${label}`, tone: "planning" },
+    planned: { icon: "✓", subject: "Planner", text: `planned ${label}`, tone: "planned" },
+    "planning-failed": { icon: "!", subject: "Planner", text: `could not plan ${label}`, tone: "planning-failed" },
     started: { icon: "◈", subject: "Fable", text: `started ${label}`, tone: "started" },
     review: { icon: "◇", subject: "Fable", text: `moved ${label} to review`, tone: "review" },
     done: { icon: "✓", subject: "Fable", text: `completed ${label}`, tone: "done" },
@@ -74,6 +77,9 @@ export function lifecycleToast(evt: StoryLifecycleEvent): { kind: ToastKind; msg
   const label = evt.wid ? `${evt.wid} — ${evt.title ?? evt.id}` : evt.title ?? evt.id;
   const map: Record<LifecycleKind, { kind: ToastKind; msg: string }> = {
     queued: { kind: "info", msg: `Queued ${label}` },
+    planning: { kind: "info", msg: `Planning ${label}` },
+    planned: { kind: "success", msg: `Plan ready: ${label}` },
+    "planning-failed": { kind: "error", msg: `Planning failed: ${label}` },
     started: { kind: "info", msg: `Started ${label}` },
     review: { kind: "success", msg: `Review ready: ${label}` },
     done: { kind: "success", msg: formatMergeSuccessToast(evt.pr) },
