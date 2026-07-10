@@ -43,6 +43,12 @@ npm run dev -w arc-story-queue-app # start the Vite web board
 
 The current supported client runtime is the Vite web app in `app/`. Tauri packaging is deferred to a later desktop shell; any Tauri scripts/files are optional and not part of the v1 getting-started path.
 
+> **Restart the daemon after rebuilding it.** The daemon registers its MCP tool
+> set once at process startup and runs from compiled `dist/`, so a process
+> started before a rebuild keeps serving the old tool set. The board detects
+> this skew and names the missing tool with restart guidance instead of a raw
+> `MCP error -32602` (W-000034).
+
 ## Fable pull loop
 
 From a live Claude Code/Fable session, use the helper to register the session, attach the current repo, reserve the next queued story, and print the assignment prompt:
