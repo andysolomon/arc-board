@@ -44,6 +44,12 @@ export interface IssueReconcileResult {
   errors: Array<{ id: string; message: string }>;
 }
 
+export interface DoneRetentionResult {
+  checked: number;
+  stamped: string[];
+  purged: string[];
+}
+
 export interface QueueDeps {
   store: StoryStore;
   registry: SessionRegistry;
@@ -424,6 +430,7 @@ export class QueueManager {
     story.column = "done";
     story.prState = "merged";
     story.worktree = "";
+    story.doneAt = Date.now();
     this.store.upsertStory(story);
     return story;
   }
@@ -522,6 +529,32 @@ export class QueueManager {
         }
       } catch (error) {
         result.errors.push({ id: story.id, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    return result;
+  }
+
+  async reconcileDoneRetention(retentionMs: number): Promise<DoneRetentionResult> {
+    const result: DoneRetentionResult = { checked: 0, stamped: [], purged: [] };
+    const doneStories = this.store.listStories().filter((story) => story.column === "done");
+    const now = Date.now();
+
+    for (const story of doneStories) {
+      result.checked += 1;
+      if (story.doneAt == null) {
+        story.doneAt = now;
+        this.store.upsertStory(story);
+        result.stamped.push(story.id);
+      } else if (now - story.doneAt > retentionMs) {
+        this.store.deleteStory(story.id);
+        result.purged.push(story.id);
+        await this.sse.emitEvent({
+          kind: "purged",
+          id: story.id,
+          wid: story.wid,
+          title: story.title,
+        });
       }
     }
 

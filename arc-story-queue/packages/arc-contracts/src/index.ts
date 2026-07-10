@@ -203,6 +203,8 @@ export interface Story {
   issue?: string | null;        // "#215" once filed through Fable
   pr?: string | null;
   prState?: "open" | "merged" | "closed";
+  /** Epoch ms when the story entered Done (for automatic retention). */
+  doneAt?: number;
   annotation?: AnnotateOutcome;
   plan?: Plan | null;
   bug?: BugDetail;
@@ -461,6 +463,7 @@ export const storySchema: JsonSchema = {
     issue: { type: ["string", "null"] },
     pr: { type: ["string", "null"] },
     prState: { enum: ["open", "merged", "closed"] },
+    doneAt: { type: "number" },
     annotation: { enum: ["accepted", "rejected", "blocked", "verification-failed", "escalated"] },
     plan: { anyOf: [planObjectSchema, { type: "null" }] },
     bug: bugDetailSchema,
@@ -629,6 +632,7 @@ export function normalizeStory(value: Story | (Partial<Story> & Record<string, u
     ...(typeof value.issue === "string" || value.issue === null ? { issue: value.issue } : {}),
     ...(typeof value.pr === "string" || value.pr === null ? { pr: value.pr } : {}),
     ...(value.prState === "open" || value.prState === "merged" || value.prState === "closed" ? { prState: value.prState } : {}),
+    ...(typeof value.doneAt === "number" ? { doneAt: value.doneAt } : {}),
     ...(
       value.annotation === "accepted" ||
       value.annotation === "rejected" ||
