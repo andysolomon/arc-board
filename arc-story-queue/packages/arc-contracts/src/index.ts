@@ -165,6 +165,21 @@ export interface Plan {
   acMapping: Array<{ ac: string; by: string }>;
 }
 
+interface OrchestrationPlanDetails {
+  route: RouteId;
+  backend: string;
+  mode: string;
+  rationale: string;
+  complexity: string;
+  plannedAt: string;
+  storyDigest: string;
+}
+
+/** Durable route planning state attached to a story before execution. */
+export type OrchestrationPlan =
+  | ({ status: "planned"; error?: string } & OrchestrationPlanDetails)
+  | ({ status: "unplanned" | "planning" | "failed"; error?: string } & Partial<OrchestrationPlanDetails>);
+
 /** Bug intake fields (arc-bug-finder). */
 export interface BugDetail {
   severity: Severity;
@@ -207,6 +222,7 @@ export interface Story {
   doneAt?: number;
   annotation?: AnnotateOutcome;
   plan?: Plan | null;
+  orchestration?: OrchestrationPlan | null;
   bug?: BugDetail;
   slice?: SliceDetail;
 }
@@ -394,6 +410,41 @@ export const planSchema: JsonSchema = {
   ...planObjectSchema,
 };
 
+const orchestrationPlanObjectSchema: JsonSchema = {
+  type: "object",
+  required: ["status"],
+  properties: {
+    status: { enum: ["unplanned", "planning", "planned", "failed"] },
+    route: { enum: ROUTE_ORDER },
+    backend: nonEmptyString,
+    mode: nonEmptyString,
+    rationale: nonEmptyString,
+    complexity: nonEmptyString,
+    plannedAt: nonEmptyString,
+    storyDigest: nonEmptyString,
+    error: nonEmptyString,
+  },
+  allOf: [
+    {
+      if: {
+        properties: { status: { const: "planned" } },
+        required: ["status"],
+      },
+      then: {
+        required: ["route", "backend", "mode", "rationale", "complexity", "plannedAt", "storyDigest"],
+      },
+    },
+  ],
+  additionalProperties: false,
+};
+
+export const orchestrationPlanSchema: JsonSchema = {
+  $schema: "http://json-schema.org/draft-07/schema#",
+  $id: "https://arc.dev/schema/orchestration-plan.json",
+  title: "OrchestrationPlan",
+  ...orchestrationPlanObjectSchema,
+};
+
 const bugDetailSchema: JsonSchema = {
   type: "object",
   required: ["severity", "area", "steps", "rootCause", "fixOptions"],
@@ -466,6 +517,7 @@ export const storySchema: JsonSchema = {
     doneAt: { type: "number" },
     annotation: { enum: ["accepted", "rejected", "blocked", "verification-failed", "escalated"] },
     plan: { anyOf: [planObjectSchema, { type: "null" }] },
+    orchestration: { anyOf: [orchestrationPlanObjectSchema, { type: "null" }] },
     bug: bugDetailSchema,
     slice: sliceDetailSchema,
   },
@@ -549,6 +601,7 @@ export const projectSchema: JsonSchema = {
 export const schemas = {
   story: storySchema,
   plan: planSchema,
+  orchestrationPlan: orchestrationPlanSchema,
   handoff: handoffSchema,
   runRecord: runRecordSchema,
   project: projectSchema,
@@ -590,6 +643,20 @@ export function validatePlan(plan: unknown): plan is Plan {
   return assertSchema<Plan>("Plan", planSchema, plan);
 }
 
+export function validateOrchestrationPlan(plan: unknown): plan is OrchestrationPlan {
+  const validate = validatorFor(orchestrationPlanSchema);
+  if (!validate(plan)) {
+    const route =
+      plan !== null && typeof plan === "object" && "route" in plan
+        ? ` route=${JSON.stringify((plan as Record<string, unknown>).route)};`
+        : "";
+    throw new Error(
+      `Invalid OrchestrationPlan:${route} ${ajv().errorsText(validate.errors, { separator: "; " })}`
+    );
+  }
+  return true;
+}
+
 export function validateRunRecord(run: unknown): run is RunRecord {
   return assertSchema<RunRecord>("RunRecord", runRecordSchema, run);
 }
@@ -598,7 +665,11 @@ export function validateProject(project: unknown): project is Project {
   return assertSchema<Project>("Project", projectSchema, project);
 }
 
-export function normalizeStory(value: Story | (Partial<Story> & Record<string, unknown>)): Story {
+export function normalizeStory(
+  value:
+    | Story
+    | (Omit<Partial<Story>, "orchestration"> & { orchestration?: unknown } & Record<string, unknown>)
+): Story {
   return {
     id: String(value.id ?? ""),
     wid: String(value.wid ?? "W-000000"),
@@ -643,6 +714,10 @@ export function normalizeStory(value: Story | (Partial<Story> & Record<string, u
         : {}
     ),
     ...(value.plan === null || (value.plan && typeof value.plan === "object") ? { plan: value.plan as Plan | null } : {}),
+    orchestration:
+      value.orchestration !== null && typeof value.orchestration === "object" && !Array.isArray(value.orchestration)
+        ? (value.orchestration as OrchestrationPlan)
+        : { status: "unplanned" },
     ...(value.bug && typeof value.bug === "object" ? { bug: value.bug as BugDetail } : {}),
     ...(value.slice && typeof value.slice === "object" ? { slice: value.slice as SliceDetail } : {}),
   };
