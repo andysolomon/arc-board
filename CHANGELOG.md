@@ -1,3 +1,15 @@
+# [1.27.0](https://github.com/andysolomon/arc-board/compare/v1.26.0...v1.27.0) (2026-07-10)
+
+
+### Bug Fixes
+
+* classify Merge Gate "is expected" as checks pending ([#122](https://github.com/andysolomon/arc-board/issues/122)) ([8149ef9](https://github.com/andysolomon/arc-board/commit/8149ef9ac5c250948a2b1d378fe242ea5762a32b)), closes [#116](https://github.com/andysolomon/arc-board/issues/116)
+
+
+### Features
+
+* shared async button primitive for board actions ([#126](https://github.com/andysolomon/arc-board/issues/126)) ([2d41843](https://github.com/andysolomon/arc-board/commit/2d418435cca3a468a7fc806c03d3f1e72c91aa74)), closes [#108](https://github.com/andysolomon/arc-board/issues/108)
+
 # [1.26.0](https://github.com/andysolomon/arc-board/compare/v1.25.0...v1.26.0) (2026-07-10)
 
 
