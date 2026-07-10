@@ -39,9 +39,11 @@ The helper performs deterministic plumbing only:
 
 1. `session.register` with repo/path/branch/model/pid.
 2. `project.attach` for the current cwd.
-3. `queue.next` to reserve the top queued story and create its worktree.
+3. `queue.next` to reserve the top **eligible** queued story and create its worktree. Eligibility respects global `maxParallel` and label mutex groups (`epic:` / `parallel-group:` on `story.tags`); stories whose group is busy are skipped and the next eligible story dispatches.
 4. One `story.update` line announcing that Fable pulled the story.
 5. Prints a JSON assignment containing `project`, `story`, and a ready-to-follow prompt.
+
+If `queue.next` returns no story, check whether all queued stories are blocked on mutex keys (`waiting · <key> in progress`) or the global `maxParallel` cap before retrying.
 
 If not using the helper, call the MCP tools directly in the same order:
 

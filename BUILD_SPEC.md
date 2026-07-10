@@ -90,7 +90,7 @@ Thinnest path that proves the whole topology. In order:
 boot daemon → open SSE subscription → `session.register` (fake session) → seed one queued story → `queue.next` → assert worktree created + lock held + `in_progress` → push N `story.update` lines, assert they arrive over SSE → `story.complete` → assert `column === "review"`, PR set, `RunRecord` persisted, **lock released**.
 
 **Plus `QueueManager` unit tests (Vitest)** pinning the parallelism law:
-read-only routes never lock · writes serialize per worktree (second `acquireWrite` on same worktree fails fast) · separate worktrees parallelize · `maxParallel` gating in `next()`.
+read-only routes never lock · writes serialize per worktree (second `acquireWrite` on same worktree fails fast) · separate worktrees parallelize · global `maxParallel` gating in `next()` · per-label mutex groups (`epic:` / `parallel-group:`) skip ineligible stories without stalling the queue.
 
 **Plus** a manual eyeball: the Tauri Board reflects the run live.
 
@@ -110,7 +110,33 @@ read-only routes never lock · writes serialize per worktree (second `acquireWri
 - **MCP TS SDK transport API — RESOLVED.** Installed `@modelcontextprotocol/sdk` latest is **1.29.0**. Probed its real exports: server uses **`StreamableHTTPServerTransport`** (`@modelcontextprotocol/sdk/server/streamableHttp`) wired to **`McpServer`** (`.../server/mcp`) via `McpServer.registerTool(...)` + `server.connect(transport)`; client uses **`StreamableHTTPClientTransport`** (`.../client/streamableHttp`). The docs site's "v2 `createMcpHandler`/`toNodeHandler`" is an **unreleased doc branch — NOT in 1.29.0**; do not use it. Use the classic per-session transport pattern (stateful: `sessionIdGenerator` + a `Map<sessionId, transport>`, endpoint `/mcp` handling POST/GET/DELETE). Pin `@modelcontextprotocol/sdk@^1.29`.
 - **Claude Code HTTP-MCP config — RESOLVED.** `.mcp.json` entry is `{ "type": "http", "url": "http://127.0.0.1:7420/mcp" }` (`streamable-http` is an accepted alias for `http`; a `url` with no `type` is a hard config error CC rejects). Add via `claude mcp add --transport http story-queue http://127.0.0.1:7420/mcp`.
 - **SQLite driver — RESOLVED.** Use the **`node:sqlite`** builtin (available on the Node 25.6.1 here; emits an experimental warning — acceptable for v1). No native `better-sqlite3` dependency.
-- **Worktree cleanup policy** on `story.complete` / merge / abandon: retain on `story.complete` (worktree holds the PR branch until review), remove on `story.merge` after the PR merges, and remove on explicit `story.abandon`.
+
+### Lifecycle & parallelism — current behavior (post W-000027–W-000031)
+
+- **Worktree cleanup policy** — retain on `story.complete` (worktree holds the PR branch until review); remove on `story.merge`, on merged-PR reconcile (`reconcileReviewPrs`), and on issue-close purge (`reconcileInProgressIssues`); remove on explicit `story.abandon`; **preserve** on closed-unmerged PR eviction to Backlog (worktree kept for recovery).
+- **Parallelism** — global cap `maxParallel` (default 2, `config.get` / `config.set` `{ autoRun, maxParallel }`) limits concurrent `in_progress` stories. Per-label mutex groups add a second constraint: `epic:<name>` and `parallel-group:<name>` labels on `story.tags` (from GitHub issue labels) define mutex keys; `parallel-group:` overrides `epic:` when both are present. `queue.next` skips ineligible stories and dispatches the next eligible one — the queue does not stall. Block reason: `waiting · <key> in progress`.
+- **GitHub reconcile timer** — one shared daemon timer (`prReconcileIntervalMs`, default 60_000 ms; `0` disables; programmatic `DaemonOptions` field only — no CLI flag or env var). Every tick runs both `reconcileReviewPrs()` and `reconcileInProgressIssues()` in `QueueManager`.
+
+### Parallelism: global cap vs label mutex groups
+
+```mermaid
+flowchart TD
+  subgraph dispatch["queue.next eligibility"]
+    A[Top queued story] --> B{in_progress < maxParallel?}
+    B -->|no| Z[Queue waits]
+    B -->|yes| C{Any mutex key held?}
+    C -->|yes| S[Skip → try next queued]
+    S --> A
+    C -->|no| D[Reserve → in_progress + worktree]
+  end
+  subgraph keys["Mutex keys from story.tags"]
+    E["epic:foo"]
+    F["parallel-group:bar overrides epic:"]
+  end
+  keys -.-> C
+```
+
+Global `maxParallel` is a hard ceiling on concurrent in_progress stories. Label mutex groups are an additional per-key constraint on top — a story can be under the global cap but still skipped because its `epic:` or `parallel-group:` key is busy.
 
 ---
 

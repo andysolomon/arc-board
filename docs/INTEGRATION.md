@@ -83,7 +83,7 @@ The helper performs the required MCP calls in order:
 
 1. `session.register` for the live Claude Code session.
 2. `project.attach` for the project repo.
-3. `queue.next` to reserve the next queued story and open its worktree.
+3. `queue.next` to reserve the next **eligible** queued story (respects global `maxParallel` and `epic:` / `parallel-group:` label mutex groups) and open its worktree.
 4. `story.update` to emit the first live terminal line over SSE.
 
 Then follow the assignment prompt printed by the helper. During implementation, stream progress and completion back to the daemon:
@@ -112,6 +112,86 @@ npm run import -- owner/repo
 ```
 
 Imported issues land in Backlog as filed, non-draft stories. Drag one to Queued, or use the card enqueue action.
+
+## GitHub reconcile (periodic)
+
+The daemon runs a **shared reconcile timer** on every tick (`prReconcileIntervalMs`, default 60_000 ms; `0` disables). Each tick executes both `reconcileReviewPrs()` and `reconcileInProgressIssues()` inside `QueueManager` — these are internal methods, not MCP tools.
+
+### Review PR reconcile
+
+For stories in **Review** with a real GitHub PR (`prState: open`):
+
+| GitHub PR state | Board outcome | Worktree |
+|---|---|---|
+| **Merged** | Story → **Done**, `prState: merged`, SSE `done` | Removed |
+| **Closed** (unmerged) | Story → **Backlog**, PR cleared, `prState: closed`, annotation `escalated`, SSE `escalated` | **Preserved** (recovery banner in drawer) |
+
+`local://` sentinel PRs are excluded. Review does not hold closed PRs indefinitely.
+
+### In-progress issue reconcile (issue-close purge)
+
+For stories in **In Progress** with a linked GitHub issue (real repo, not `local/...`):
+
+| GitHub issue state | Board outcome | Worktree |
+|---|---|---|
+| **CLOSED** | Story **deleted** entirely (`dequeue` + `deleteStory`), write lock released, SSE `purged` | Removed |
+
+Closed GitHub issues delete the story; closed unmerged PRs evict to Backlog. That asymmetry is intentional.
+
+### Label-based dispatch concurrency
+
+Mutex keys come from `story.tags` (GitHub issue labels):
+
+- `epic:<name>` — epic mutex group
+- `parallel-group:<name>` — parallel mutex group; when present, **overrides** `epic:` labels as the mutex key
+
+`queue.next` dispatches only when `in_progress` count < global `maxParallel` (default 2, via `config.get` / `config.set`) **and** none of the story's mutex keys is held by an in_progress story. Ineligible stories are **skipped** — the next eligible story dispatches. Block reason: `waiting · <key> in progress`.
+
+### Lifecycle diagram
+
+```mermaid
+flowchart LR
+  Q[Queued] -->|queue.next| IP[In Progress]
+  IP -->|story.complete / story.review| R[Review]
+  R -->|story.merge / PR merged reconcile| D[Done]
+  R -->|PR closed unmerged reconcile| B[Backlog]
+  IP -->|issue closed reconcile| X((purged))
+  IP -->|story.abandon| B
+```
+
+Side paths run on the shared reconcile timer (default every 60s) via `gh issue view` and `gh pr view`.
+
+### Verify board ↔ GitHub fidelity
+
+Run these from the project repo while the daemon is up:
+
+**Issue state vs In Progress (purge path):**
+
+```bash
+gh issue view <n> --json state,title
+```
+
+If `state` is `CLOSED` but the story is still in In Progress, wait for the next reconcile tick (or check `prReconcileIntervalMs` is not `0`). After reconcile, the story should be gone and its worktree removed.
+
+**PR state vs Review column:**
+
+```bash
+gh pr view <branch-or-number> --json state,mergedAt,title
+```
+
+| `state` | `mergedAt` | Expected column |
+|---|---|---|
+| `OPEN` | — | Review |
+| `MERGED` | set | Done (worktree removed) |
+| `CLOSED` | null | Backlog (worktree preserved, recovery banner) |
+
+**Dispatch eligibility (label mutex):**
+
+```bash
+gh issue view <n> --json labels
+```
+
+Stories sharing an `epic:` or `parallel-group:` label with an in_progress story should stay in Queued with block reason `waiting · <key> in progress` until the holder finishes or is purged.
 
 ## Success checklist
 
