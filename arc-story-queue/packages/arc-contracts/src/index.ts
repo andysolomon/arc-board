@@ -665,6 +665,18 @@ export function validateProject(project: unknown): project is Project {
   return assertSchema<Project>("Project", projectSchema, project);
 }
 
+/** Numeric suffix from a canonical work id (`W-000046` → `46`). */
+export function widSequence(wid: string): number {
+  const match = wid.match(/^W-(\d{6})$/);
+  return match ? Number(match[1]) : 0;
+}
+
+/** First `W-XXXXXX` token in a title (e.g. `[W-000046] [pipeline] …`). */
+export function parseWidFromTitle(title: string): string | null {
+  const match = title.match(/\b(W-\d{6})\b/);
+  return match?.[1] ?? null;
+}
+
 export function normalizeStory(
   value:
     | Story
