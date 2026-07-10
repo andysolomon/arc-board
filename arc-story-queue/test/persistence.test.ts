@@ -1,9 +1,11 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Story } from "arc-contracts";
+import type { OrchestrationPlan, Story } from "arc-contracts";
 import { startDaemon, type DaemonHandle } from "../mcp-server/dist/server.js";
+import { StoryStore } from "../mcp-server/dist/store.js";
 
 function makeStory(id: string): Story {
   return {
@@ -66,4 +68,45 @@ describe("daemon persistence (file-backed SQLite)", () => {
     expect(daemon.queue.getConfig()).toEqual({ autoRun: true, maxParallel: 5 });
     await daemon.close();
   }, 60_000);
+
+  it("defaults orchestration when reading and rewriting a legacy SQLite story", () => {
+    const legacyDbPath = join(dir, "legacy.db");
+    const initializedStore = new StoryStore(legacyDbPath);
+    initializedStore.close();
+
+    const database = new DatabaseSync(legacyDbPath);
+    const legacyStory = makeStory("legacy");
+    database.prepare("INSERT INTO stories (id, data) VALUES (?, ?)").run(
+      legacyStory.id,
+      JSON.stringify(legacyStory)
+    );
+    database.close();
+
+    const store = new StoryStore(legacyDbPath);
+    const normalized = store.getStory(legacyStory.id);
+    expect(normalized).toEqual({ ...legacyStory, orchestration: { status: "unplanned" } });
+    store.upsertStory(normalized!);
+    expect(store.getStory(legacyStory.id)).toEqual(normalized);
+    store.close();
+  });
+
+  it("round-trips a fully populated orchestration plan through SQLite exactly", () => {
+    const orchestration: OrchestrationPlan = {
+      status: "planned",
+      route: "opus-check",
+      backend: "claude",
+      mode: "review",
+      rationale: "Use deep verification for this contract change.",
+      complexity: "medium",
+      plannedAt: "2026-07-10T12:00:00.000Z",
+      storyDigest: "sha256:fully-populated",
+      error: "Previously failed planning attempt was recovered.",
+    };
+    const story: Story = { ...makeStory("fully-populated"), orchestration };
+    const store = new StoryStore(join(dir, "fully-populated.db"));
+
+    store.upsertStory(story);
+    expect(store.getStory(story.id)).toEqual(story);
+    store.close();
+  });
 });

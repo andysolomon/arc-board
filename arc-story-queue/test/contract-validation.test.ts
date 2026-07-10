@@ -7,12 +7,15 @@ import {
   ROUTES,
   type AnnotateOutcome,
   type Handoff,
+  type OrchestrationPlan,
   type Plan,
   type Project,
   type RouteId,
   type RunRecord,
   type Story,
+  normalizeStory,
   validateHandoff,
+  validateOrchestrationPlan,
   validatePlan,
   validateProject,
   validateRunRecord,
@@ -43,6 +46,18 @@ const handoff: Handoff = {
   verification: ["vitest"],
   risks: [],
   next_actions: [],
+};
+
+const orchestrationPlan: OrchestrationPlan = {
+  status: "planned",
+  route: "codex-implement",
+  backend: "codex",
+  mode: "implement",
+  rationale: "The story needs a write-capable implementation route.",
+  complexity: "medium",
+  plannedAt: "2026-07-10T12:00:00.000Z",
+  storyDigest: "sha256:story-1",
+  error: "No planning error.",
 };
 
 function makeStory(overrides: Partial<Story> = {}): Story {
@@ -149,6 +164,44 @@ describe("arc-contracts schema fixtures", () => {
     expect(() => validateHandoff({ ...handoff, status: "unknown" })).toThrow(/Invalid Handoff:.*status/);
     expect(() => validateRunRecord(makeRun({ route: "unknown-route" as RouteId }))).toThrow(/Invalid RunRecord:.*route/);
     expect(() => validateProject({ ...project, pid: -1 })).toThrow(/Invalid Project:.*pid/);
+  });
+
+  it("accepts every live route in an orchestration plan", () => {
+    expect(validateOrchestrationPlan({ status: "unplanned" })).toBe(true);
+    for (const route of routeIds) {
+      const routePlan: OrchestrationPlan = { ...orchestrationPlan, route };
+      expect(validateOrchestrationPlan(routePlan)).toBe(true);
+      expect(validateStory(makeStory({ orchestration: routePlan }))).toBe(true);
+    }
+  });
+
+  it("rejects an incomplete planned orchestration plan while keeping error optional", () => {
+    const { error: _error, ...planWithoutError } = orchestrationPlan;
+
+    expect(validateOrchestrationPlan(planWithoutError)).toBe(true);
+    expect(() => validateOrchestrationPlan({ status: "planned", route: "codex-implement" })).toThrow(
+      /Invalid OrchestrationPlan:.*required/
+    );
+    expect(() =>
+      validateStory(makeStory({ orchestration: { status: "planned", route: "codex-implement" } as OrchestrationPlan }))
+    ).toThrow(/Invalid Story:.*required/);
+  });
+
+  it("rejects an unknown orchestration route and identifies its value", () => {
+    expect(() =>
+      validateOrchestrationPlan({ ...orchestrationPlan, route: "gpt-9-mega" })
+    ).toThrow(/Invalid OrchestrationPlan:.*route=.*gpt-9-mega/);
+  });
+
+  it("defaults absent, null, and non-object orchestration state without rewriting objects", () => {
+    const preserved = { status: "planned", route: "codex-implement", futureField: "preserve me" };
+
+    expect(normalizeStory(makeStory()).orchestration).toEqual({ status: "unplanned" });
+    expect(normalizeStory(makeStory({ orchestration: null })).orchestration).toEqual({ status: "unplanned" });
+    expect(normalizeStory({ ...makeStory(), orchestration: "malformed" }).orchestration).toEqual({
+      status: "unplanned",
+    });
+    expect(normalizeStory({ ...makeStory(), orchestration: preserved }).orchestration).toBe(preserved);
   });
 });
 

@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arc.dev/schema/orchestration-plan.json",
+  "title": "OrchestrationPlan",
+  "type": "object",
+  "required": ["status"],
+  "properties": {
+    "status": { "enum": ["unplanned", "planning", "planned", "failed"] },
+    "route": {
+      "enum": [
+        "codex-explore",
+        "composer-explore",
+        "opus-explore",
+        "composer-implement",
+        "codex-implement",
+        "opus-implement",
+        "codex-check",
+        "composer-check",
+        "opus-check",
+        "fable"
+      ]
+    },
+    "backend": { "type": "string", "minLength": 1 },
+    "mode": { "type": "string", "minLength": 1 },
+    "rationale": { "type": "string", "minLength": 1 },
+    "complexity": { "type": "string", "minLength": 1 },
+    "plannedAt": { "type": "string", "minLength": 1 },
+    "storyDigest": { "type": "string", "minLength": 1 },
+    "error": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "planned" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["route", "backend", "mode", "rationale", "complexity", "plannedAt", "storyDigest"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}
