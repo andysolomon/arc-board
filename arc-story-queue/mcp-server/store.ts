@@ -3,6 +3,8 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   normalizeStory,
+  parseWidFromTitle,
+  widSequence,
   type AppConfig,
   type Handoff,
   type IntakeItem,
@@ -66,6 +68,7 @@ export class StoryStore {
       );
       CREATE INDEX IF NOT EXISTS idx_known_projects_last_used_at ON known_projects(last_used_at DESC);
     `);
+    this.reconcileAllStoryWids();
   }
 
   upsertKnownProject(project: Pick<KnownProject, "repo" | "path" | "branch" | "model">, lastUsedAt = Date.now()): KnownProject {
@@ -113,6 +116,25 @@ export class StoryStore {
     return `W-${String(row.value).padStart(6, "0")}`;
   }
 
+  /** Keep the wid counter at or above an explicit title-derived id so future allocations do not collide. */
+  ensureWidCounterAtLeast(sequence: number): void {
+    if (!Number.isFinite(sequence) || sequence < 1) return;
+    const row = this.db.prepare("SELECT value FROM counters WHERE name = 'wid'").get() as
+      | { value: number }
+      | undefined;
+    const current = row?.value ?? 0;
+    if (sequence <= current) return;
+    this.db
+      .prepare(
+        "INSERT INTO counters (name, value) VALUES ('wid', ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value"
+      )
+      .run(sequence);
+  }
+
+  isWidTaken(wid: string, exceptStoryId?: string): boolean {
+    return this.listStoriesRaw().some((story) => story.wid === wid && story.id !== exceptStoryId);
+  }
+
   upsertStory(story: Story): void {
     const normalized = normalizeStory(story);
     this.db
@@ -121,13 +143,42 @@ export class StoryStore {
   }
 
   getStory(id: string): Story | null {
+    const story = this.readStory(id);
+    return story ? this.reconcileWidFromTitle(story) : null;
+  }
+
+  listStories(): Story[] {
+    return this.listStoriesRaw().map((story) => this.reconcileWidFromTitle(story));
+  }
+
+  private readStory(id: string): Story | null {
     const row = this.db.prepare("SELECT data FROM stories WHERE id = ?").get(id) as { data: string } | undefined;
     return row ? normalizeStory(JSON.parse(row.data) as Partial<Story>) : null;
   }
 
-  listStories(): Story[] {
+  private listStoriesRaw(): Story[] {
     const rows = this.db.prepare("SELECT data FROM stories").all() as Array<{ data: string }>;
     return rows.map((r) => normalizeStory(JSON.parse(r.data) as Partial<Story>));
+  }
+
+  private reconcileAllStoryWids(): void {
+    for (const story of this.listStoriesRaw()) {
+      this.reconcileWidFromTitle(story);
+    }
+  }
+
+  /** Align stored wid with a title-embedded W- id when the story was imported before that rule existed. */
+  private reconcileWidFromTitle(story: Story): Story {
+    const fromTitle = parseWidFromTitle(story.title);
+    if (!fromTitle || fromTitle === story.wid) return story;
+    if (this.isWidTaken(fromTitle, story.id)) return story;
+
+    const repaired = normalizeStory({ ...story, wid: fromTitle });
+    this.ensureWidCounterAtLeast(widSequence(fromTitle));
+    this.db
+      .prepare("INSERT INTO stories (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data")
+      .run(repaired.id, JSON.stringify(repaired));
+    return repaired;
   }
 
   enqueue(storyId: string): void {

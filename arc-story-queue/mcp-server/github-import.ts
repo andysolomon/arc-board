@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import type { Story, TaskClass, WorkType } from "arc-contracts";
+import { parseWidFromTitle, widSequence, type Story, type TaskClass, type WorkType } from "arc-contracts";
 import type { StoryStore } from "./store.js";
 
 export interface GithubIssue {
@@ -43,6 +43,16 @@ function slugify(s: string): string {
   );
 }
 
+/** Prefer a title-embedded W- id; otherwise allocate the next local counter value. */
+export function resolveImportWid(store: StoryStore, issue: GithubIssue, exceptStoryId?: string): string {
+  const fromTitle = parseWidFromTitle(issue.title);
+  if (fromTitle && !store.isWidTaken(fromTitle, exceptStoryId)) {
+    store.ensureWidCounterAtLeast(widSequence(fromTitle));
+    return fromTitle;
+  }
+  return store.nextWid();
+}
+
 /** Map a GitHub issue to a filed (non-draft) backlog Story ready to be queued. */
 export function issueToStory(issue: GithubIssue, repo: string, wid: string): Story {
   const isBug = issue.labels.some((l) => /bug/i.test(l.name));
@@ -69,9 +79,14 @@ export function issueToStory(issue: GithubIssue, repo: string, wid: string): Sto
   };
 }
 
+function findStoryByIssue(store: StoryStore, issueUrl: string): Story | null {
+  return store.listStories().find((story) => story.issue === issueUrl) ?? null;
+}
+
 /**
  * Import GitHub issues into the store as backlog (non-draft) stories.
  * Dedupes by issue url so re-importing never creates duplicates.
+ * Re-import also repairs wid when the title carries a canonical W- id.
  */
 export function importIssuesToStore(args: {
   store: StoryStore;
@@ -79,14 +94,14 @@ export function importIssuesToStore(args: {
   issues: GithubIssue[];
 }): Story[] {
   const { store, repo, issues } = args;
-  const existing = new Set(store.listStories().map((s) => s.issue).filter(Boolean));
   const created: Story[] = [];
   for (const issue of issues) {
-    if (existing.has(issue.url)) continue;
-    const story = issueToStory(issue, repo, store.nextWid());
+    const existing = findStoryByIssue(store, issue.url);
+    if (existing) continue;
+
+    const story = issueToStory(issue, repo, resolveImportWid(store, issue));
     store.upsertStory(story);
     created.push(story);
-    existing.add(issue.url);
   }
   return created;
 }

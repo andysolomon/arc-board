@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseWidFromTitle, widSequence } from "arc-contracts";
 import { QueueManager } from "../mcp-server/dist/queue.js";
 import { SessionRegistry } from "../mcp-server/dist/registry.js";
 import { SseHub } from "../mcp-server/dist/sse.js";
@@ -20,6 +21,14 @@ function issue(n: number, title: string, labels: string[] = []): GithubIssue {
     labels: labels.map((name) => ({ name })),
   };
 }
+
+describe("wid parsing", () => {
+  it("extracts the first W- token from a title", () => {
+    expect(parseWidFromTitle("[W-000046] [pipeline] PT-06 Merge PR to Done column")).toBe("W-000046");
+    expect(parseWidFromTitle("Add search")).toBeNull();
+    expect(widSequence("W-000046")).toBe(46);
+  });
+});
 
 describe("github import", () => {
   it("maps an issue to a filed backlog story; bug labels set type/taskClass", () => {
@@ -48,6 +57,28 @@ describe("github import", () => {
     const second = importIssuesToStore({ store, repo, issues: [...issues, issue(3, "Three")] });
     expect(second.map((s) => s.title)).toEqual(["Three"]);
     expect(store.listStories()).toHaveLength(3);
+  });
+
+  it("uses the title-embedded W- id instead of the local counter", () => {
+    const store = new StoryStore(":memory:");
+    for (let i = 0; i < 12; i++) store.nextWid();
+
+    const pipeline = issue(73, "[W-000046] [pipeline] PT-06 Merge PR to Done column", ["pipeline-test"]);
+    const [created] = importIssuesToStore({ store, repo, issues: [pipeline] });
+
+    expect(created.wid).toBe("W-000046");
+    expect(created.branch).toContain("w-000046");
+  });
+
+  it("repairs a mismatched wid on read after import assigned the local counter", () => {
+    const store = new StoryStore(":memory:");
+    const pipeline = issue(73, "[W-000046] [pipeline] PT-06 Merge PR to Done column");
+    const stale = issueToStory(pipeline, repo, "W-000013");
+    store.upsertStory(stale);
+
+    const repaired = store.getStory(stale.id);
+    expect(repaired?.wid).toBe("W-000046");
+    expect(store.listStories().find((s) => s.id === stale.id)?.wid).toBe("W-000046");
   });
 
   it("queue.importGithub uses an injected lister", () => {
