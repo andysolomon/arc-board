@@ -1,3 +1,10 @@
+# [1.26.0](https://github.com/andysolomon/arc-board/compare/v1.25.0...v1.26.0) (2026-07-10)
+
+
+### Features
+
+* plan queued stories in background ([82be884](https://github.com/andysolomon/arc-board/commit/82be88485fedb8cfb6c444682f49412f6cd3a696))
+
 # [1.25.0](https://github.com/andysolomon/arc-board/compare/v1.24.0...v1.25.0) (2026-07-10)
 
 
