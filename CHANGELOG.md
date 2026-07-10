@@ -1,3 +1,10 @@
+## [1.21.4](https://github.com/andysolomon/arc-board/compare/v1.21.3...v1.21.4) (2026-07-10)
+
+
+### Bug Fixes
+
+* **W-000038:** reconnect and refetch board state when the MCP stream dies ([#95](https://github.com/andysolomon/arc-board/issues/95)) ([a4cae86](https://github.com/andysolomon/arc-board/commit/a4cae8699aed85c02f186e6b296953da03eff05c)), closes [#94](https://github.com/andysolomon/arc-board/issues/94)
+
 ## [1.21.3](https://github.com/andysolomon/arc-board/compare/v1.21.2...v1.21.3) (2026-07-10)
 
 
