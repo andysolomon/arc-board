@@ -1,8 +1,33 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { CallToolResultSchema, LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, LoggingMessageNotificationSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { StoryLifecycleEvent, StoryUpdateEvent } from "./boardState";
+
+/**
+ * The daemon registers its tool set once at process startup, so a daemon
+ * launched from a stale `dist/` build silently lacks tools a newer UI calls
+ * and rejects them with a raw `MCP error -32602: Tool <name> not found`
+ * (W-000034). Translate that skew into guidance the user can act on.
+ */
+export function missingDaemonToolError(name: string): Error {
+  return new Error(
+    `The story-queue daemon is running an older build without "${name}". ` +
+      "Rebuild and restart it (npm run build, then npm run start in mcp-server), then reload the board."
+  );
+}
+
+function isToolNotFoundError(err: unknown, name: string): boolean {
+  return err instanceof McpError && err.message.includes(`Tool ${name} not found`);
+}
+
+/** The daemon reports an unknown tool as a resolved result with `isError`. */
+function isToolNotFoundResult(result: unknown, name: string): boolean {
+  const r = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+  if (!r?.isError) return false;
+  const text = r.content?.find((c) => c.type === "text")?.text;
+  return !!text?.includes(`Tool ${name} not found`);
+}
 
 /** Extract and JSON-parse the text payload of an MCP tool result. */
 export function parseToolResult<T>(result: unknown): T {
@@ -48,6 +73,8 @@ export class BoardSync {
   private client: Client | null = null;
   private transport: StreamableHTTPClientTransport | null = null;
   private connected = false;
+  /** Tool names the connected daemon actually serves; null when unknown. */
+  private toolNames: Set<string> | null = null;
 
   constructor(
     private readonly mcpUrl: string,
@@ -82,6 +109,13 @@ export class BoardSync {
     });
     await this.client.connect(this.transport);
     this.connected = true;
+    try {
+      const { tools } = await this.client.listTools();
+      this.toolNames = new Set(tools.map((tool) => tool.name));
+    } catch {
+      // Daemon without tools/list support — fall back to call-time translation.
+      this.toolNames = null;
+    }
   }
 
   async close(): Promise<void> {
@@ -89,6 +123,7 @@ export class BoardSync {
     this.client = null;
     this.transport = null;
     this.connected = false;
+    this.toolNames = null;
   }
 
   private ensureClient(): Client {
@@ -98,16 +133,26 @@ export class BoardSync {
     return this.client;
   }
 
+  private async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+    const client = this.ensureClient();
+    if (this.toolNames && !this.toolNames.has(name)) throw missingDaemonToolError(name);
+    try {
+      const result = await client.callTool({ name, arguments: args }, CallToolResultSchema);
+      if (isToolNotFoundResult(result, name)) throw missingDaemonToolError(name);
+      return result;
+    } catch (err) {
+      if (isToolNotFoundError(err, name)) throw missingDaemonToolError(name);
+      throw err;
+    }
+  }
+
   /** Call an MCP tool and parse its JSON text result. */
   async call<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-    const client = this.ensureClient();
-    const result = await client.callTool({ name, arguments: args }, CallToolResultSchema);
-    return parseToolResult<T>(result);
+    return parseToolResult<T>(await this.callTool(name, args));
   }
 
   /** Call an MCP tool and return the raw result (for `isError`-specific handling). */
   async callRaw(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
-    const client = this.ensureClient();
-    return client.callTool({ name, arguments: args }, CallToolResultSchema);
+    return this.callTool(name, args);
   }
 }
