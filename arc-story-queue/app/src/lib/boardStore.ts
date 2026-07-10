@@ -114,10 +114,18 @@ export interface RefineResult {
   children: Story[];
 }
 
+export interface BoardStoreLivenessOptions {
+  reconnectDelaysMs?: number[];
+  watchdogIntervalMs?: number;
+  staleEventThresholdMs?: number;
+}
+
 export interface BoardStoreOptions {
   storage?: BoardStorage | null;
   modelComplete?: ModelComplete | null;
   mcpFetch?: FetchLike | null;
+  sync?: BoardSync;
+  liveness?: BoardStoreLivenessOptions;
 }
 
 export interface SessionRegisterArgs {
@@ -149,6 +157,14 @@ export class BoardStore {
   private detailRefreshSeq = 0;
   private readonly storage: BoardStorage | null;
   private readonly modelComplete: ModelComplete | null;
+  private disposed = false;
+  private isReconnecting = false;
+  private reconnectAttempt = 0;
+  private watchdogTimer: ReturnType<typeof setInterval> | undefined;
+  private removeFocusListeners: (() => void) | undefined;
+  private readonly reconnectDelaysMs: number[];
+  private readonly watchdogIntervalMs: number;
+  private readonly staleEventThresholdMs: number;
 
   constructor(
     mcpUrl: string,
@@ -157,17 +173,23 @@ export class BoardStore {
     const looksLikeOptions =
       storageOrOptions !== null &&
       typeof storageOrOptions === "object" &&
-      ("storage" in storageOrOptions || "modelComplete" in storageOrOptions || "mcpFetch" in storageOrOptions);
+      ("storage" in storageOrOptions || "modelComplete" in storageOrOptions || "mcpFetch" in storageOrOptions || "sync" in storageOrOptions || "liveness" in storageOrOptions);
     const options = looksLikeOptions ? (storageOrOptions as BoardStoreOptions) : undefined;
     this.storage = options
       ? options.storage === undefined ? defaultStorage() : options.storage
       : storageOrOptions === undefined ? defaultStorage() : (storageOrOptions as BoardStorage | null);
     this.modelComplete = options?.modelComplete === undefined ? defaultModelComplete() : options.modelComplete;
     const mcpFetch = options?.mcpFetch === undefined ? null : options.mcpFetch;
-    this.sync = new BoardSync(mcpUrl, mcpFetch, {
-      onStoryUpdate: (event) => this.reduce((state) => applyStoryUpdate(state, event)),
-      onLifecycle: (event) => this.handleLifecycleEvent(event),
-    });
+    const liveness = options?.liveness;
+    this.reconnectDelaysMs = liveness?.reconnectDelaysMs ?? [1_000, 2_000, 4_000, 8_000, 15_000];
+    this.watchdogIntervalMs = liveness?.watchdogIntervalMs ?? 15_000;
+    this.staleEventThresholdMs = liveness?.staleEventThresholdMs ?? 60_000;
+    const syncHandlers = {
+      onStoryUpdate: (event: StoryUpdateEvent) => this.reduce((state) => applyStoryUpdate(state, event)),
+      onLifecycle: (event: StoryLifecycleEvent) => this.handleLifecycleEvent(event),
+      onDisconnect: () => this.handleDisconnect(),
+    };
+    this.sync = options?.sync ?? new BoardSync(mcpUrl, mcpFetch, syncHandlers);
   }
 
   getState(): BoardState {
@@ -259,13 +281,132 @@ export class BoardStore {
       .catch(() => undefined);
   }
 
+  private handleDisconnect(): void {
+    if (this.disposed) return;
+    this.patch({ status: "connecting", error: undefined });
+    void this.runReconnectLoop();
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private reconnectDelayMs(): number {
+    const index = Math.min(this.reconnectAttempt, this.reconnectDelaysMs.length - 1);
+    return this.reconnectDelaysMs[index];
+  }
+
+  private async runReconnectLoop(): Promise<void> {
+    if (this.disposed || this.isReconnecting) return;
+    this.isReconnecting = true;
+    try {
+      while (!this.disposed && !this.sync.isConnected()) {
+        this.patch({ status: "connecting", error: undefined });
+        const delayMs = this.reconnectDelayMs();
+        this.reconnectAttempt += 1;
+        await this.delay(delayMs);
+        if (this.disposed) return;
+        try {
+          await this.sync.connect();
+          this.reconnectAttempt = 0;
+          this.patch({ status: "connected" });
+          this.startWatchdog();
+          await this.afterReconnectSuccess();
+          return;
+        } catch {
+          // keep backing off until success or dispose
+        }
+      }
+    } finally {
+      this.isReconnecting = false;
+    }
+  }
+
+  private async afterReconnectSuccess(): Promise<void> {
+    const openDetailId = this.state.detail?.story.id;
+    await this.refreshViews();
+    if (openDetailId && this.state.detail?.story.id === openDetailId) {
+      await this.refreshOpenDetail(openDetailId);
+    }
+  }
+
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    if (this.watchdogIntervalMs <= 0) return;
+    this.watchdogTimer = setInterval(() => {
+      void this.checkWatchdog();
+    }, this.watchdogIntervalMs);
+    const timer = this.watchdogTimer;
+    if (timer && typeof timer === "object" && "unref" in timer && typeof timer.unref === "function") {
+      timer.unref();
+    }
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogTimer !== undefined) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = undefined;
+    }
+  }
+
+  private async checkWatchdog(): Promise<void> {
+    if (this.disposed || this.state.status !== "connected") return;
+    const last = this.sync.lastEventAt;
+    if (last === null) return;
+    if (Date.now() - last <= this.staleEventThresholdMs) return;
+    await this.sync.close();
+    if (this.disposed) return;
+    this.patch({ status: "connecting", error: undefined });
+    void this.runReconnectLoop();
+  }
+
+  private ensureFocusListeners(): void {
+    if (this.removeFocusListeners) return;
+    const globals = globalThis as typeof globalThis & {
+      document?: {
+        addEventListener(type: string, listener: () => void): void;
+        removeEventListener(type: string, listener: () => void): void;
+        visibilityState?: string;
+      };
+      window?: {
+        addEventListener(type: string, listener: () => void): void;
+        removeEventListener(type: string, listener: () => void): void;
+      };
+    };
+    if (!globals.document || !globals.window) return;
+
+    const onFocusReturn = () => this.handleFocusReturn();
+    const onVisibilityChange = () => {
+      if (globals.document?.visibilityState === "visible") this.handleFocusReturn();
+    };
+    globals.window.addEventListener("focus", onFocusReturn);
+    globals.document.addEventListener("visibilitychange", onVisibilityChange);
+    this.removeFocusListeners = () => {
+      globals.window?.removeEventListener("focus", onFocusReturn);
+      globals.document?.removeEventListener("visibilitychange", onVisibilityChange);
+      this.removeFocusListeners = undefined;
+    };
+  }
+
+  private handleFocusReturn(): void {
+    if (this.disposed) return;
+    if (this.state.status === "connected") {
+      void this.refreshViews().catch(() => undefined);
+      return;
+    }
+    void this.runReconnectLoop();
+  }
+
   async connect(): Promise<void> {
     if (this.state.status === "connected" || this.state.status === "connecting") return;
     this.patch({ status: "connecting", error: undefined });
 
     try {
       await this.sync.connect();
+      this.reconnectAttempt = 0;
       this.patch({ status: "connected" });
+      this.startWatchdog();
+      this.ensureFocusListeners();
       await this.restoreLastAttachment();
     } catch (err) {
       this.patch({
@@ -277,6 +418,9 @@ export class BoardStore {
   }
 
   async close(): Promise<void> {
+    this.disposed = true;
+    this.stopWatchdog();
+    this.removeFocusListeners?.();
     await this.sync.close();
     this.state = createInitialBoardState();
     this.emit();

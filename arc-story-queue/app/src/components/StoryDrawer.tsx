@@ -26,6 +26,7 @@ interface StoryDrawerProps {
 export function StoryDrawer({ store, detail }: StoryDrawerProps) {
   const boardStory = store.getState().stories[detail.story.id];
   const story = boardStory ?? detail.story;
+  const boardConnected = store.getState().status === "connected";
   const { runs, handoff } = detail;
   const lanes = boardStory ? workerLanes(boardStory) : [];
   const activeLaneCount = lanes.filter((lane) => lane.status === "running").length;
@@ -156,7 +157,7 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
         {lanes.length > 0 && (
           <Section
             label="Delegated run · parallel workers"
-            meta={activeLaneCount > 0 ? <span className="sq-live-label"><span className="sq-dot" />LIVE</span> : null}
+            meta={boardConnected && activeLaneCount > 0 ? <span className="sq-live-label"><span className="sq-dot" />LIVE</span> : null}
           >
             <div className="sq-lanes">
               {lanes.map((lane) => (

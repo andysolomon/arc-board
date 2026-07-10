@@ -62,6 +62,7 @@ export async function resolveTauriHttpFetch(): Promise<FetchLike | null> {
 export interface BoardSyncHandlers {
   onStoryUpdate(event: StoryUpdateEvent): void;
   onLifecycle(event: StoryLifecycleEvent): void;
+  onDisconnect?(): void;
 }
 
 /**
@@ -73,6 +74,8 @@ export class BoardSync {
   private client: Client | null = null;
   private transport: StreamableHTTPClientTransport | null = null;
   private connected = false;
+  private closingExplicitly = false;
+  private lastEventAtValue: number | null = null;
   /** Tool names the connected daemon actually serves; null when unknown. */
   private toolNames: Set<string> | null = null;
 
@@ -86,18 +89,41 @@ export class BoardSync {
     return this.connected && this.client !== null;
   }
 
+  get lastEventAt(): number | null {
+    return this.lastEventAtValue;
+  }
+
   async connect(): Promise<void> {
+    this.closingExplicitly = false;
+    this.lastEventAtValue = null;
+    if (this.client) {
+      await this.client.close().catch(() => undefined);
+      this.client = null;
+      this.transport = null;
+      this.connected = false;
+      this.toolNames = null;
+    }
     const mcpFetch = this.mcpFetch ?? (await resolveTauriHttpFetch());
     this.transport = new StreamableHTTPClientTransport(
       new URL(this.mcpUrl),
       mcpFetch ? { fetch: mcpFetch } : undefined
     );
+    this.transport.onclose = () => {
+      if (this.closingExplicitly) return;
+      this.connected = false;
+      this.client = null;
+      this.transport = null;
+      this.toolNames = null;
+      this.handlers.onDisconnect?.();
+    };
     this.client = new Client({ name: "arc-story-queue-board", version: "0.1.0" });
     this.client.setNotificationHandler(LoggingMessageNotificationSchema, (notification) => {
       const raw = notification.params?.data;
       if (typeof raw !== "string") return;
       try {
         const parsed = JSON.parse(raw) as { type?: string };
+        this.lastEventAtValue = Date.now();
+        if (parsed.type === "ping") return;
         if (parsed.type === "story.update") {
           this.handlers.onStoryUpdate(parsed as StoryUpdateEvent);
         } else if (parsed.type === "story.event") {
@@ -119,11 +145,13 @@ export class BoardSync {
   }
 
   async close(): Promise<void> {
+    this.closingExplicitly = true;
     if (this.client) await this.client.close();
     this.client = null;
     this.transport = null;
     this.connected = false;
     this.toolNames = null;
+    this.lastEventAtValue = null;
   }
 
   private ensureClient(): Client {

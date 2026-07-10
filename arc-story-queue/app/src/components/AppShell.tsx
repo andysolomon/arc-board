@@ -41,6 +41,18 @@ export function AppShell({ store }: AppShellProps) {
   const runningCount = store.storiesByColumn("in_progress").length;
   const liveWorkerCount = store.liveWorkerCount();
   const reservedWorkerCount = store.reservedWorkerCount();
+  const connectionLabel =
+    state.status === "connecting"
+      ? "Fable · reconnecting…"
+      : state.status === "disconnected" || state.status === "error"
+        ? "Fable · disconnected"
+        : !connected
+          ? "Offline"
+          : liveWorkerCount > 0
+            ? `Fable · ${liveWorkerCount} running`
+            : reservedWorkerCount > 0
+              ? "Fable · no worker attached"
+              : "Fable · idle";
   const queueLen = store.queueStories().length;
   const detail = store.getDetail();
   const autoPulling = useRef(false);
@@ -105,13 +117,7 @@ export function AppShell({ store }: AppShellProps) {
           }`}
         >
           <span className="sq-pill__dot" />
-          {!connected
-            ? "Offline"
-            : liveWorkerCount > 0
-              ? `Fable · ${liveWorkerCount} running`
-              : reservedWorkerCount > 0
-                ? "Fable · no worker attached"
-                : "Fable · idle"}
+          {connectionLabel}
           {connected && liveWorkerCount > 0 && <span className="sq-pill__spinner" aria-hidden />}
         </span>
         <NotificationsBell store={store} />
