@@ -19,6 +19,7 @@ import { buildContractRows } from "../lib/delegationContract";
 import { parseBoardActionError } from "../lib/boardActionError";
 import { AsyncButton } from "./AsyncButton";
 import { MergeBlockedCallout } from "./MergeBlockedCallout";
+import { OrchestrationPlanSection } from "./OrchestrationPlanSection";
 import { Markdown } from "./Markdown";
 import { useAsyncAction } from "../lib/useAsyncAction";
 
@@ -85,6 +86,8 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
           const waitReason = dispatchBlockReason(story, inProgress);
           return waitReason ? <div className="sq-warn">{waitReason}</div> : null;
         })()}
+
+        {story.column === "queued" && <OrchestrationPlanSection store={store} story={story} />}
 
         {story.column === "backlog" && story.prState === "closed" && (
           <div className="sq-warn">PR closed without merging; this card was returned to Backlog. Its worktree is preserved for recovery.</div>

@@ -14,6 +14,7 @@ import {
   formatPrLabel,
   formatTerminalLine,
 } from "../lib/storyCardFormat";
+import { planBadge } from "../lib/orchestrationPlan";
 
 interface StoryCardProps {
   story: BoardStory;
@@ -47,6 +48,7 @@ export function StoryCard({
   const bugBadge =
     story.type === "bug" ? `BUG${story.bug?.severity ? ` · ${story.bug.severity}` : ""}` : null;
   const terminalLine = lastLine ? formatTerminalLine(lastLine) : "dispatching…";
+  const plan = story.column === "queued" ? planBadge(story) : null;
   const draggable = !!onPointerDragStart;
 
   return (
@@ -102,6 +104,11 @@ export function StoryCard({
             )}
             {bugBadge && <span className="story-card__bug">{bugBadge}</span>}
             {story.draft && <span className="story-card__draft">DRAFT</span>}
+            {plan && (
+              <span className={`story-card__plan story-card__plan--${plan.slug}`}>
+                {plan.label}
+              </span>
+            )}
           </div>
           <h3 className="story-card__title">{story.title}</h3>
 
