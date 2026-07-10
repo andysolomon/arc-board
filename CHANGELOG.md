@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/andysolomon/arc-board/compare/v1.16.7...v1.17.0) (2026-07-10)
+
+
+### Features
+
+* purge in-progress stories when linked GitHub issue is closed (W-000027) ([#80](https://github.com/andysolomon/arc-board/issues/80)) ([9bfb061](https://github.com/andysolomon/arc-board/commit/9bfb0618bce782e3831d161ba849101de3c3902d)), closes [#75](https://github.com/andysolomon/arc-board/issues/75)
+
 ## [1.16.7](https://github.com/andysolomon/arc-board/compare/v1.16.6...v1.16.7) (2026-07-09)
 
 
