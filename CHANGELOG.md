@@ -1,3 +1,10 @@
+## [1.27.1](https://github.com/andysolomon/arc-board/compare/v1.27.0...v1.27.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* auto-fix Merge Gate PR title and retry merge once ([#127](https://github.com/andysolomon/arc-board/issues/127)) ([57d9de8](https://github.com/andysolomon/arc-board/commit/57d9de853ebbd8f8cee4297a923827aa2f23b827)), closes [#113](https://github.com/andysolomon/arc-board/issues/113)
+
 # [1.27.0](https://github.com/andysolomon/arc-board/compare/v1.26.0...v1.27.0) (2026-07-10)
 
 
