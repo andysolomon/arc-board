@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/andysolomon/arc-board/compare/v1.18.0...v1.19.0) (2026-07-10)
+
+
+### Features
+
+* **W-000030:** add Start button to dispatch worker on reserved in-progress story ([#83](https://github.com/andysolomon/arc-board/issues/83)) ([ab3bab3](https://github.com/andysolomon/arc-board/commit/ab3bab37f7882336348ec2b3c957dcae02954cc8)), closes [#78](https://github.com/andysolomon/arc-board/issues/78)
+
 # [1.18.0](https://github.com/andysolomon/arc-board/compare/v1.17.0...v1.18.0) (2026-07-10)
 
 
