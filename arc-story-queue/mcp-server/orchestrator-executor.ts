@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   isRouteId,
   routeAccess,
+  routeModel,
   routeNeedsWriteLock,
   type RouteId,
   type RunRecord,
@@ -100,6 +101,54 @@ export function orchestratorRoute(backend: OrchestratorBackend, mode: Orchestrat
   };
   const route = routes[`${backend}:${mode}`];
   return route && isRouteId(route) ? route : "composer-implement";
+}
+
+const DEFAULT_BACKEND: OrchestratorBackend = "composer";
+const DEFAULT_MODE: OrchestratorMode = "implement";
+
+export interface ResolvedOrchestrationExecution {
+  backend: OrchestratorBackend;
+  mode: OrchestratorMode;
+  route: RouteId;
+  usedFallback: boolean;
+}
+
+function isOrchestratorBackend(value: string): value is OrchestratorBackend {
+  return value === "composer" || value === "codex" || value === "claude";
+}
+
+function isOrchestratorMode(value: string): value is OrchestratorMode {
+  return value === "analyze" || value === "implement" || value === "review";
+}
+
+/** Read the story's persisted orchestration plan or fall back to composer/implement. */
+export function resolveOrchestrationExecution(story: Story): ResolvedOrchestrationExecution {
+  const plan = story.orchestration;
+  if (plan?.status === "planned" && plan.route && plan.backend && plan.mode) {
+    const route = plan.route;
+    if (!isRouteId(route)) {
+      throw new Error(`Invalid orchestration plan: route ${JSON.stringify(route)} is not registered`);
+    }
+    if (!isOrchestratorBackend(plan.backend)) {
+      throw new Error(`Invalid orchestration plan: backend ${JSON.stringify(plan.backend)} is not a CLI id`);
+    }
+    if (!isOrchestratorMode(plan.mode)) {
+      throw new Error(`Invalid orchestration plan: mode ${JSON.stringify(plan.mode)} is not supported`);
+    }
+    const expectedRoute = orchestratorRoute(plan.backend, plan.mode);
+    if (route !== expectedRoute) {
+      throw new Error(
+        `Invalid orchestration plan: route ${JSON.stringify(route)} does not match backend and mode (expected ${JSON.stringify(expectedRoute)})`
+      );
+    }
+    return { backend: plan.backend, mode: plan.mode, route, usedFallback: false };
+  }
+  return {
+    backend: DEFAULT_BACKEND,
+    mode: DEFAULT_MODE,
+    route: orchestratorRoute(DEFAULT_BACKEND, DEFAULT_MODE),
+    usedFallback: true,
+  };
 }
 
 function compactLabel(value: string, max = 48): string {
@@ -282,15 +331,40 @@ export async function runOrchestrationAnalysis(
 export async function runOrchestratorPipeline(client: Client, story: Story, streamLine: StreamLineFn, opts: OrchestratorExecutorOptions = {}) {
   if (!story.worktree) throw new Error(`Story ${story.id} has no worktree`);
   const bin = opts.bin ?? resolveOrchestratorBin();
-  const route = orchestratorRoute("composer", "implement");
-  const { args } = orchestratorRunArgs(story, "composer", "implement", bin, opts);
+  const { backend, mode, route, usedFallback } = resolveOrchestrationExecution(story);
+  const { args } = orchestratorRunArgs(story, backend, mode, bin, opts);
+  if (usedFallback) {
+    await streamLine(
+      client,
+      story,
+      "fable",
+      "out",
+      `no orchestration plan for ${story.wid}; falling back to ${backend}/${mode} (${route})`
+    );
+  }
   await streamLine(client, story, "fable", "out", `orchestrator delegating ${story.wid} to ${route}`);
   if (routeNeedsWriteLock(route)) await streamLine(client, story, route, "lock", `write-lock requested for ${story.worktree}`);
   await streamLine(client, story, route, "cmd", orchestratorCommandLine(bin, args).replace(buildOrchestratorTaskContract(story), "<task contract>"));
-  const { result, stderr } = await runOrchestratorPhase(story, "composer", "implement", opts);
+  const startedAt = Date.now();
+  const { result, stderr } = await runOrchestratorPhase(story, backend, mode, opts);
   for (const line of stderr.trim().split(/\r?\n/).filter(Boolean).slice(-6)) await streamLine(client, story, route, "out", line.slice(0, 1200));
   if (result.status === "blocked") throw new Error(result.summary);
   await streamLine(client, story, route, "ok", result.summary, "done");
   if (routeNeedsWriteLock(route)) await streamLine(client, story, route, "unlock", "write-lock released after orchestrator run");
-  return { route, result, traces: [] as OrchestratorTraceRecord[] };
+  const runRecord: RunRecord = {
+    id: `run-${story.id}-${route}-${startedAt}`,
+    storyId: story.id,
+    label: `${story.wid} orchestrator`,
+    repo: story.repo,
+    route,
+    backend: BACKEND_LABEL[backend],
+    model: routeModel(route),
+    access: routeAccess(route),
+    tokens: 0,
+    durMs: Math.max(1, Date.now() - startedAt),
+    status: "completed",
+    changed: result.changes.length,
+    outcome: "unrated",
+  };
+  return { route, result, traces: [] as OrchestratorTraceRecord[], runRecord };
 }
