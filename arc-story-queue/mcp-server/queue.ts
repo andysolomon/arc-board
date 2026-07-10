@@ -12,6 +12,7 @@ import {
   type RunRecord,
   type Story,
   type StoryDetail,
+  isDispatchEligible,
 } from "arc-contracts";
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
@@ -119,7 +120,8 @@ export class QueueManager {
 
   async next(projectId: string): Promise<Story | null> {
     const maxParallel = this.store.getConfiguredMaxParallel() ?? this.cfg.maxParallel;
-    if (this.running(projectId).length >= maxParallel) return null;
+    const inProgress = this.running(projectId);
+    if (inProgress.length >= maxParallel) return null;
 
     const repo = this.repoOf(projectId);
     const repoPath = this.registry.repoPathOf(projectId);
@@ -127,7 +129,8 @@ export class QueueManager {
 
     const id = order.find((sid) => {
       const s = this.store.getStory(sid);
-      return s && !s.draft && s.column === "queued" && s.repo === repo;
+      if (!s || s.draft || s.column !== "queued" || s.repo !== repo) return false;
+      return isDispatchEligible(s, inProgress, maxParallel);
     });
     if (!id) return null;
 

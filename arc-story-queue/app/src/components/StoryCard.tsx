@@ -18,6 +18,7 @@ import {
 interface StoryCardProps {
   story: BoardStory;
   queueIndex?: number;
+  waitReason?: string | null;
   onEnqueue?: (id: string) => void;
   onOpen?: (id: string) => void;
   onPointerDragStart?: (id: string, event: ReactPointerEvent<HTMLElement>) => void;
@@ -27,6 +28,7 @@ interface StoryCardProps {
 export function StoryCard({
   story,
   queueIndex,
+  waitReason,
   onEnqueue,
   onOpen,
   onPointerDragStart,
@@ -143,6 +145,7 @@ export function StoryCard({
                 <span className="story-card__wid">{story.wid}</span>
                 <span className="story-card__branch">⎇ {story.branch}</span>
               </div>
+              {waitReason && <div className="story-card__waiting">{waitReason}</div>}
               {story.tags.length > 0 && (
                 <div className="story-card__tags">
                   {story.tags.map((tag) => (

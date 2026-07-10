@@ -1,5 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import type { Handoff, RunRecord, Story, StoryDetail } from "arc-contracts";
+import { dispatchBlockReason } from "arc-contracts";
 import type { BoardStore, RefineAction } from "../lib/boardStore";
 import {
   COLUMN_LABELS,
@@ -71,6 +72,14 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
         )}
 
         {story.column === "backlog" && <RefineActions store={store} story={story} />}
+
+        {story.column === "queued" && (() => {
+          const inProgress = Object.values(store.getState().stories).filter(
+            (s) => s.column === "in_progress"
+          );
+          const waitReason = dispatchBlockReason(story, inProgress);
+          return waitReason ? <div className="sq-warn">{waitReason}</div> : null;
+        })()}
 
         {story.column === "review" && story.prState === "closed" && (
           <div className="sq-warn">PR closed without merging; this card stays in Review for human recovery.</div>

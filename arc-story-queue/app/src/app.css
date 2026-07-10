@@ -435,6 +435,19 @@ body {
   border-radius: var(--sq-r-badge);
 }
 
+.story-card__waiting {
+  display: inline-flex;
+  margin-top: 7px;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--sq-muted);
+}
+
+.sq-qrow__wait {
+  color: var(--sq-muted);
+  font-weight: 600;
+}
+
 .story-card__worktree {
   margin-top: 7px;
   min-width: 0;

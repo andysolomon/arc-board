@@ -2,6 +2,14 @@
 
 import Ajv, { type ValidateFunction } from "ajv";
 
+export {
+  dispatchBlockReason,
+  isDispatchEligible,
+  mutexConflict,
+  mutexKeysFromTags,
+  storyMutexKeys,
+} from "./concurrency.js";
+
 export type Column = "backlog" | "queued" | "in_progress" | "review" | "done";
 export type Priority = "high" | "med" | "low";
 export type Size = "S" | "M" | "L" | "XL";

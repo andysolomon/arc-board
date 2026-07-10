@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Column } from "arc-contracts";
+import { dispatchBlockReason } from "arc-contracts";
 import type { BoardStory } from "../lib/boardStore";
 import { COLUMN_LABELS, columnDotColor } from "../lib/boardStore";
 import { StoryCard } from "./StoryCard";
@@ -18,6 +19,7 @@ interface BoardColumnProps {
   insertionBeforeId?: string | null;
   showInsertionMarker?: boolean;
   onCardPointerDragStart?: (id: string, event: ReactPointerEvent<HTMLElement>) => void;
+  inProgressStories?: BoardStory[];
 }
 
 const EMPTY_HINTS: Record<Column, string> = {
@@ -40,6 +42,7 @@ export function BoardColumn({
   insertionBeforeId,
   showInsertionMarker,
   onCardPointerDragStart,
+  inProgressStories = [],
 }: BoardColumnProps) {
   const isQueued = column === "queued";
   const isRunning = column === "in_progress";
@@ -65,6 +68,7 @@ export function BoardColumn({
             <StoryCard
               story={story}
               queueIndex={isQueued ? i : undefined}
+              waitReason={isQueued ? dispatchBlockReason(story, inProgressStories) : null}
               onEnqueue={onEnqueue}
               onOpen={onOpen}
               onPointerDragStart={draggableCards ? onCardPointerDragStart : undefined}

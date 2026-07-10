@@ -180,11 +180,13 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
       <div className="board-view__columns">
         {BOARD_COLUMNS.map((column) => {
           const draggable = DRAGGABLE.includes(column);
+          const inProgress = store.storiesByColumn("in_progress");
           return (
             <BoardColumn
               key={column}
               column={column}
               stories={column === "queued" ? store.queueStories() : store.storiesByColumn(column)}
+              inProgressStories={column === "queued" ? inProgress : undefined}
               emptyHint=""
               onEnqueue={column === "backlog" ? handleEnqueue : undefined}
               onOpen={onOpen}

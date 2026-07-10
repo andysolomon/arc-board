@@ -8,6 +8,12 @@ import { SessionRegistry } from "../mcp-server/dist/registry.js";
 import { SseHub } from "../mcp-server/dist/sse.js";
 import { StoryStore } from "../mcp-server/dist/store.js";
 import type { Story } from "arc-contracts";
+import {
+  dispatchBlockReason,
+  isDispatchEligible,
+  mutexKeysFromTags,
+  storyMutexKeys,
+} from "arc-contracts";
 
 function makeStory(overrides: Partial<Story> = {}): Story {
   return {
@@ -63,6 +69,214 @@ function makeGitFixture() {
 
 afterEach(() => {
   while (tmpDirs.length) rmSync(tmpDirs.pop()!, { recursive: true, force: true });
+});
+
+function attachProject(registry: SessionRegistry, repoPath: string) {
+  const session = registry.register({
+    repo: "test/repo",
+    path: repoPath,
+    branch: "main",
+    model: "test",
+    pid: 1,
+  });
+  return registry.attach(session.id, "/tmp/wt");
+}
+
+describe("label concurrency groups", () => {
+  it("mutexKeysFromTags prefers parallel-group over epic", () => {
+    expect(
+      mutexKeysFromTags(["epic: a", "parallel-group: ci", "epic: b"])
+    ).toEqual(["parallel-group: ci"]);
+    expect(mutexKeysFromTags(["epic: release-automation"])).toEqual(["epic: release-automation"]);
+    expect(mutexKeysFromTags(["bug", "feature"])).toEqual([]);
+  });
+
+  it("dispatchBlockReason surfaces the conflicting label", () => {
+    const running = makeStory({ tags: ["epic: release-automation"] });
+    const queued = makeStory({ tags: ["epic: release-automation"] });
+    expect(dispatchBlockReason(queued, [running])).toBe(
+      "waiting · epic: release-automation in progress"
+    );
+  });
+
+  it("epic label creates a mutex group", async () => {
+    const { store, registry, queue } = makeQueue(2);
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const running = makeStory({
+      id: "s1",
+      column: "in_progress",
+      tags: ["epic: release-automation"],
+      worktree: "/wt/s1",
+      repo: "test/repo",
+    });
+    const queued = makeStory({
+      id: "s2",
+      column: "queued",
+      tags: ["epic: release-automation"],
+      branch: "feat/story-2",
+      repo: "test/repo",
+    });
+    store.upsertStory(running);
+    store.upsertStory(queued);
+    store.enqueue("s2");
+
+    expect(await queue.next(project.id)).toBeNull();
+    expect(store.getStory("s2")?.column).toBe("queued");
+  });
+
+  it("different epic labels can run in parallel when under maxParallel", async () => {
+    const { store, registry, queue } = makeQueue(2);
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const running = makeStory({
+      id: "s1",
+      column: "in_progress",
+      tags: ["epic: release-automation"],
+      worktree: "/wt/s1",
+      repo: "test/repo",
+    });
+    const queued = makeStory({
+      id: "s2",
+      column: "queued",
+      tags: ["epic: release"],
+      branch: "feat/story-2",
+      repo: "test/repo",
+    });
+    store.upsertStory(running);
+    store.upsertStory(queued);
+    store.enqueue("s2");
+    queue.acquireWrite("/wt/s1", "s1");
+
+    const next = await queue.next(project.id);
+    expect(next?.id).toBe("s2");
+    expect(next?.column).toBe("in_progress");
+  });
+
+  it("global maxParallel still caps total concurrency", async () => {
+    const { store, registry, queue } = makeQueue(2);
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const s1 = makeStory({
+      id: "s1",
+      column: "in_progress",
+      tags: ["epic: a"],
+      worktree: "/wt/s1",
+      repo: "test/repo",
+    });
+    const s2 = makeStory({
+      id: "s2",
+      column: "in_progress",
+      tags: ["epic: b"],
+      worktree: "/wt/s2",
+      repo: "test/repo",
+    });
+    const s3 = makeStory({
+      id: "s3",
+      column: "queued",
+      tags: ["epic: c"],
+      branch: "feat/story-3",
+      repo: "test/repo",
+    });
+    store.upsertStory(s1);
+    store.upsertStory(s2);
+    store.upsertStory(s3);
+    store.enqueue("s3");
+
+    expect(await queue.next(project.id)).toBeNull();
+    expect(store.getStory("s3")?.column).toBe("queued");
+  });
+
+  it("queue.next skips blocked head and picks next eligible story", async () => {
+    const { store, registry, queue } = makeQueue(2);
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const running = makeStory({
+      id: "s0",
+      column: "in_progress",
+      tags: ["epic: shared"],
+      worktree: "/wt/s0",
+      repo: "test/repo",
+    });
+    const blocked = makeStory({
+      id: "s1",
+      column: "queued",
+      tags: ["epic: shared"],
+      branch: "feat/blocked",
+      repo: "test/repo",
+    });
+    const eligible = makeStory({
+      id: "s2",
+      column: "queued",
+      tags: ["epic: other"],
+      branch: "feat/eligible",
+      repo: "test/repo",
+    });
+    store.upsertStory(running);
+    store.upsertStory(blocked);
+    store.upsertStory(eligible);
+    store.enqueue("s1");
+    store.enqueue("s2");
+    queue.acquireWrite("/wt/s0", "s0");
+
+    const next = await queue.next(project.id);
+    expect(next?.id).toBe("s2");
+    expect(store.getStory("s1")?.column).toBe("queued");
+  });
+
+  it("stories without epic labels are only gated by maxParallel", async () => {
+    const { store, registry, queue } = makeQueue(2);
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const running = makeStory({
+      id: "s1",
+      column: "in_progress",
+      tags: ["bug"],
+      worktree: "/wt/s1",
+      repo: "test/repo",
+    });
+    const queued = makeStory({
+      id: "s2",
+      column: "queued",
+      tags: [],
+      branch: "feat/no-mutex",
+      repo: "test/repo",
+    });
+    store.upsertStory(running);
+    store.upsertStory(queued);
+    store.enqueue("s2");
+    queue.acquireWrite("/wt/s1", "s1");
+
+    const next = await queue.next(project.id);
+    expect(next?.id).toBe("s2");
+    expect(isDispatchEligible(queued, [running], 2)).toBe(true);
+  });
+
+  it("parallel-group label overrides epic for mutex", async () => {
+    const { store, registry, queue } = makeQueue(2);
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const running = makeStory({
+      id: "s1",
+      column: "in_progress",
+      tags: ["epic: alpha", "parallel-group: ci"],
+      worktree: "/wt/s1",
+      repo: "test/repo",
+    });
+    const queued = makeStory({
+      id: "s2",
+      column: "queued",
+      tags: ["epic: beta", "parallel-group: ci"],
+      branch: "feat/ci-blocked",
+      repo: "test/repo",
+    });
+    store.upsertStory(running);
+    store.upsertStory(queued);
+    store.enqueue("s2");
+
+    expect(storyMutexKeys(running)).toEqual(["parallel-group: ci"]);
+    expect(await queue.next(project.id)).toBeNull();
+  });
 });
 
 describe("QueueManager parallelism law", () => {
