@@ -9,6 +9,9 @@ export interface StoryUpdateEvent {
 
 export type LifecycleKind =
   | "queued"
+  | "planning"
+  | "planned"
+  | "planning-failed"
   | "started"
   | "review"
   | "done"
@@ -33,6 +36,7 @@ export interface StoryLifecycleEvent {
 /** Fan-out story.update payloads to all MCP SSE subscribers. */
 export class SseHub {
   private sessions = new Map<string, McpServer>();
+  private lifecycleListeners = new Set<(event: StoryLifecycleEvent) => void>();
 
   register(sessionId: string, server: McpServer): void {
     this.sessions.set(sessionId, server);
@@ -42,6 +46,15 @@ export class SseHub {
     this.sessions.delete(sessionId);
   }
 
+  /**
+   * Receive lifecycle facts only after their SSE fan-out has completed. This
+   * makes queue observers follow the same ordering that connected clients see.
+   */
+  subscribeLifecycle(listener: (event: StoryLifecycleEvent) => void): () => void {
+    this.lifecycleListeners.add(listener);
+    return () => this.lifecycleListeners.delete(listener);
+  }
+
   async broadcast(event: StoryUpdateEvent): Promise<void> {
     await this.send({ type: "story.update", ...event });
   }
@@ -49,6 +62,11 @@ export class SseHub {
   /** Fan-out a coarse lifecycle event (queued/started/review/done/abandoned/drafted/filed/etc.). */
   async emitEvent(event: StoryLifecycleEvent): Promise<void> {
     await this.send({ type: "story.event", ...event });
+    for (const listener of this.lifecycleListeners) {
+      // Lifecycle observers are background work and must never fail the MCP
+      // mutation whose already-delivered event they observed.
+      try { listener(event); } catch { /* observer failures are isolated */ }
+    }
   }
 
   /** Broadcast a heartbeat so subscribers can detect a live SSE stream. */

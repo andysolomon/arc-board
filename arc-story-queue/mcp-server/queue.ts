@@ -949,6 +949,53 @@ export class QueueManager {
     if (!story) throw new Error(`Unknown story: ${id}`);
     this.store.dequeue(id);
     story.column = "backlog";
+    story.orchestration = { status: "unplanned" };
+    this.store.upsertStory(story);
+    return story;
+  }
+
+  /** Queued stories needing a background route analysis; no dispatch slot is reserved. */
+  planningCandidates(): Story[] {
+    return this.store
+      .queueIds()
+      .map((id) => this.store.getStory(id))
+      .filter(
+        (story): story is Story =>
+          !!story &&
+          story.column === "queued" &&
+          (story.orchestration?.status === "unplanned" || story.orchestration?.status === "planning")
+      );
+  }
+
+  /** Atomically claim a queued story for analysis, without creating a worktree or lock. */
+  beginPlanning(id: string): Story | null {
+    const story = this.store.getStory(id);
+    if (
+      !story ||
+      story.column !== "queued" ||
+      (story.orchestration?.status !== "unplanned" && story.orchestration?.status !== "planning")
+    ) {
+      return null;
+    }
+    story.orchestration = { status: "planning" };
+    this.store.upsertStory(story);
+    return story;
+  }
+
+  /** Commit a plan only if the same story is still queued and owned by planning. */
+  finishPlanning(id: string, plan: NonNullable<Story["orchestration"]>): Story | null {
+    const story = this.store.getStory(id);
+    if (!story || story.column !== "queued" || story.orchestration?.status !== "planning") return null;
+    story.orchestration = plan;
+    this.store.upsertStory(story);
+    return story;
+  }
+
+  /** Persist a planner failure with the same stale-result guard as successful plans. */
+  failPlanning(id: string, error: string): Story | null {
+    const story = this.store.getStory(id);
+    if (!story || story.column !== "queued" || story.orchestration?.status !== "planning") return null;
+    story.orchestration = { status: "failed", error };
     this.store.upsertStory(story);
     return story;
   }

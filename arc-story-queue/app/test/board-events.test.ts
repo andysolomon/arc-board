@@ -91,12 +91,13 @@ describe("daemon lifecycle SSE → board activity", () => {
     await wait(300);
     const msgs = store.getNotifications().map((n) => n.message);
     expect(msgs.some((m) => m.includes("Queued") && m.includes("W-000001"))).toBe(true);
-    expect(store.getActivityItems()[0]).toMatchObject({
+    const queuedActivity = store.getActivityItems().find((item) => item.tone === "queued");
+    expect(queuedActivity).toMatchObject({
       icon: "➕",
       subject: "Queue",
       tone: "queued",
     });
-    expect(store.getActivityItems()[0].text).toContain("W-000001");
+    expect(queuedActivity?.text).toContain("W-000001");
   });
 
   it("notifies the board when ANOTHER session enqueues a story (cross-client)", async () => {

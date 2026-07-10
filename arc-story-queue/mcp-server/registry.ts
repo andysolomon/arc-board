@@ -57,6 +57,11 @@ export class SessionRegistry {
     return project.path;
   }
 
+  /** Repository path for an attached project, used by queue-time read-only planning. */
+  repoPathForRepo(repo: string): string | undefined {
+    return [...this.projects.values()].find((project) => project.repo === repo)?.path;
+  }
+
   discover(): Project[] {
     return [...this.sessions.values()]
       .filter((s) => s.status === "connected")
