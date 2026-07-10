@@ -61,6 +61,7 @@ function makeGitFixture() {
   writeFileSync(join(repo, "README.md"), "# fixture\n");
   execFileSync("git", ["-C", repo, "add", "."], { stdio: "pipe" });
   execFileSync("git", ["-C", repo, "commit", "-m", "init"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repo, "branch", "-M", "main"], { stdio: "pipe" });
   execFileSync("git", ["-C", repo, "worktree", "add", worktree, "-b", "feat/story-1"], {
     stdio: "pipe",
   });
@@ -524,6 +525,139 @@ describe("QueueManager parallelism law", () => {
     const next = await queue.next(project.id);
     expect(next?.id).toBe(queued.id);
     expect(next?.column).toBe("in_progress");
+  });
+
+  it("review() opens a GitHub PR when the branch has commits", async () => {
+    const gitCalls: string[][] = [];
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        if (args[0] === "pr" && args[1] === "create") {
+          return Buffer.from("https://github.com/test/repo/pull/42");
+        }
+        return Buffer.from("");
+      }
+      if (file === "git") {
+        gitCalls.push([...args]);
+        if (args.includes("push")) return Buffer.from("");
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    writeFileSync(join(worktree, "change.txt"), "x");
+    execFileSync("git", ["-C", worktree, "add", "."], { stdio: "pipe" });
+    execFileSync("git", ["-C", worktree, "commit", "-m", "feature"], { stdio: "pipe" });
+    const story = makeStory({
+      column: "in_progress",
+      worktree,
+      branch: "feat/story-1",
+      repo: "test/repo",
+    });
+    store.upsertStory(story);
+
+    const reviewed = await queue.review(story.id);
+
+    expect(reviewed.column).toBe("review");
+    expect(reviewed.pr).toBe("https://github.com/test/repo/pull/42");
+    expect(reviewed.prState).toBe("open");
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+    expect(gitCalls.some((c) => c.includes("push"))).toBe(true);
+    expect(gitCalls.some((c) => c.includes("--allow-empty"))).toBe(false);
+  });
+
+  it("review() creates an empty commit and opens a GitHub PR when the branch has no commits", async () => {
+    const gitCalls: string[][] = [];
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        if (args[0] === "pr" && args[1] === "create") {
+          return Buffer.from("https://github.com/test/repo/pull/43");
+        }
+        return Buffer.from("");
+      }
+      if (file === "git") {
+        gitCalls.push([...args]);
+        if (args.includes("push")) return Buffer.from("");
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "in_progress",
+      worktree,
+      branch: "feat/story-1",
+      repo: "test/repo",
+    });
+    store.upsertStory(story);
+
+    const reviewed = await queue.review(story.id);
+
+    expect(reviewed.column).toBe("review");
+    expect(reviewed.pr).toBe("https://github.com/test/repo/pull/43");
+    expect(reviewed.pr).not.toMatch(/^local:\/\//);
+    expect(reviewed.prState).toBe("open");
+    expect(gitCalls.some((c) => c.includes("commit") && c.includes("--allow-empty"))).toBe(true);
+    expect(gitCalls.some((c) => c.includes("push"))).toBe(true);
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+  });
+
+  it("review() rejects when gh pr create fails and no existing PR is found", async () => {
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        if (args[0] === "pr" && args[1] === "create") throw new Error("pr create failed");
+        if (args[0] === "pr" && args[1] === "view") return Buffer.from("");
+        return Buffer.from("");
+      }
+      if (file === "git" && args.includes("push")) return Buffer.from("");
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "in_progress",
+      worktree,
+      branch: "feat/story-1",
+      repo: "test/repo",
+    });
+    store.upsertStory(story);
+
+    await expect(queue.review(story.id)).rejects.toThrow(/Failed to open or find a PR/);
+    const unchanged = store.getStory(story.id)!;
+    expect(unchanged.column).toBe("in_progress");
+    expect(unchanged.pr).toBeFalsy();
+  });
+
+  it("review() uses a local:// sentinel for local/ repos without gh or git push", async () => {
+    const gitCalls: string[][] = [];
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        return Buffer.from("");
+      }
+      if (file === "git") gitCalls.push([...args]);
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "in_progress",
+      worktree,
+      branch: "feat/story-1",
+      repo: "local/my-project",
+    });
+    store.upsertStory(story);
+
+    const reviewed = await queue.review(story.id);
+
+    expect(reviewed.column).toBe("review");
+    expect(reviewed.pr).toBe("local://arc-story-queue/W-000001");
+    expect(ghCalls).toEqual([]);
+    expect(gitCalls.some((c) => c.includes("push"))).toBe(false);
   });
 
   it("maxParallel gating makes next() return null when at capacity", async () => {

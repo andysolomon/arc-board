@@ -308,9 +308,10 @@ export class QueueManager {
   }
 
   /**
-   * Send an in-progress story to review. If its worktree branch has commits and the
-   * repo is a real GitHub remote, push the branch and open a PR; otherwise attach a
-   * local:// sentinel (no-code stories). Builds a handoff from the worktree git state.
+   * Send an in-progress story to review. For GitHub repos, push the worktree branch
+   * and open a PR (creating an empty commit first when the branch has no commits ahead
+   * of base). Local or local/-prefixed repos get a local:// sentinel with no git push
+   * or gh calls. Builds a handoff from the worktree git state.
    */
   async review(id: string): Promise<Story> {
     const story = this.store.getStory(id);
@@ -323,9 +324,19 @@ export class QueueManager {
     const { commitCount, changed } = this.reviewGitState(worktree, base);
     const isGithubRepo = !!story.repo && !story.repo.startsWith("local/");
 
-    const pr = commitCount > 0 && isGithubRepo
-      ? this.openPullRequest(story, worktree, story.branch, base)
-      : `local://arc-story-queue/${story.wid}`;
+    let pr: string;
+    if (isGithubRepo) {
+      if (commitCount === 0) {
+        this.runCommand(
+          "git",
+          ["-C", worktree, "commit", "--allow-empty", "-m", `chore(${story.wid}): open review PR`],
+          { stdio: "pipe" }
+        );
+      }
+      pr = this.openPullRequest(story, worktree, story.branch, base);
+    } else {
+      pr = `local://arc-story-queue/${story.wid}`;
+    }
 
     const handoff: Handoff = {
       status: "completed",
