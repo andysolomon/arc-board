@@ -1,3 +1,10 @@
+## [1.21.5](https://github.com/andysolomon/arc-board/compare/v1.21.4...v1.21.5) (2026-07-10)
+
+
+### Bug Fixes
+
+* **W-000035:** clear stale handoff when a story is re-dispatched ([#96](https://github.com/andysolomon/arc-board/issues/96)) ([ddbc7e6](https://github.com/andysolomon/arc-board/commit/ddbc7e6f15b6213f6c2051b9a53e92443824a7e0)), closes [#92](https://github.com/andysolomon/arc-board/issues/92)
+
 ## [1.21.4](https://github.com/andysolomon/arc-board/compare/v1.21.3...v1.21.4) (2026-07-10)
 
 
