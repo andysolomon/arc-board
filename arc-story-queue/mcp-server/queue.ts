@@ -423,7 +423,10 @@ export class QueueManager {
     return story;
   }
 
-  private flagClosedPr(story: Story): Story {
+  /** Evict a closed-without-merge PR from Review to Backlog; preserve worktree for recovery. */
+  private evictClosedPr(story: Story): Story {
+    story.column = "backlog";
+    story.pr = null;
     story.prState = "closed";
     story.annotation = "escalated";
     this.store.upsertStory(story);
@@ -450,7 +453,7 @@ export class QueueManager {
             column: updated.column,
           });
         } else if (state === "CLOSED") {
-          const updated = this.flagClosedPr(story);
+          const updated = this.evictClosedPr(story);
           result.closed.push(updated.id);
           await this.sse.emitEvent({
             kind: "escalated",

@@ -480,7 +480,7 @@ describe("QueueManager parallelism law", () => {
     expect(store.getStory(inProgressNoIssue.id)).not.toBeNull();
   });
 
-  it("reconcileReviewPrs() flags PRs closed without merging but leaves the card in Review", async () => {
+  it("reconcileReviewPrs() evicts PRs closed without merging from Review to Backlog", async () => {
     const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
       if (file === "gh") return Buffer.from(JSON.stringify({ state: "CLOSED", mergedAt: null }));
       return execFileSync(file, args, options);
@@ -498,7 +498,8 @@ describe("QueueManager parallelism law", () => {
     const updated = store.getStory(story.id)!;
 
     expect(result).toEqual({ checked: 1, merged: [], closed: [story.id], errors: [] });
-    expect(updated.column).toBe("review");
+    expect(updated.column).toBe("backlog");
+    expect(updated.pr).toBeFalsy();
     expect(updated.prState).toBe("closed");
     expect(updated.annotation).toBe("escalated");
     expect(updated.worktree).toBe(story.worktree);

@@ -82,8 +82,8 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
           return waitReason ? <div className="sq-warn">{waitReason}</div> : null;
         })()}
 
-        {story.column === "review" && story.prState === "closed" && (
-          <div className="sq-warn">PR closed without merging; this card stays in Review for human recovery.</div>
+        {story.column === "backlog" && story.prState === "closed" && (
+          <div className="sq-warn">PR closed without merging; this card was returned to Backlog. Its worktree is preserved for recovery.</div>
         )}
 
         {story.column === "in_progress" && story.worktree && (
