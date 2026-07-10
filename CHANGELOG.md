@@ -1,3 +1,10 @@
+## [1.23.1](https://github.com/andysolomon/arc-board/compare/v1.23.0...v1.23.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* use title-embedded W- id on GitHub import ([#118](https://github.com/andysolomon/arc-board/issues/118)) ([9a44d1c](https://github.com/andysolomon/arc-board/commit/9a44d1c28f4eb48a43f4955e8dbfd36849a73cb4)), closes [#117](https://github.com/andysolomon/arc-board/issues/117)
+
 # [1.23.0](https://github.com/andysolomon/arc-board/compare/v1.22.0...v1.23.0) (2026-07-10)
 
 
