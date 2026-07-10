@@ -7,7 +7,7 @@ The primary client is a React + Vite web app, styled with `tokens.css` and follo
 - **Queue** — running lanes + reorderable up-next, per project.
 - **Observability** — per-project trace records + by-model report (runs, acceptance %, mean tokens/duration).
 - **Orchestrator** — Fable connection, worker route table, parallelism rules, `.mcp.json`.
-- **Drawer** — contract, implementation plan, Gherkin criteria, live parallel worker lanes, structured handoff.
+- **Drawer** — contract, implementation plan, Gherkin criteria, live parallel worker lanes, structured handoff. Actions: **Abandon** (→ Backlog, removes worktree), **Review** / merge PR (→ Done via `story.merge`), and **Start work** for reserved in_progress stories with a worktree but no live worker (`story.start` re-dispatches via SSE `started`; disabled when live workers ≥ `maxParallel`). Closed-unmerged PR eviction shows a recovery banner while the worktree is preserved.
 
 ## Guardrails to preserve
 - Drafts cannot enter Queued/In Progress until filed as a GitHub issue through Fable.

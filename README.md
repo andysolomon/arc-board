@@ -30,3 +30,5 @@ Build the **engine as a headless local service** (MCP server + worktree/lock man
 - `BUILD_PROMPT.md` — paste into Claude Code to scaffold the project.
 
 The working UI prototype (`Story Queue.dc.html`) is the source of truth for layout and interaction.
+
+**Living docs** (post-ship behavior, GitHub reconcile, concurrency): `arc-story-queue/README.md` and `docs/INTEGRATION.md`. Decision record: `BUILD_SPEC.md`.
