@@ -61,6 +61,14 @@ export function lifecycleActivityMeta(evt: StoryLifecycleEvent): ActivityMeta {
   return map[evt.kind];
 }
 
+export function formatMergeSuccessToast(pr?: string): string {
+  if (pr && !pr.startsWith("local://")) {
+    const match = pr.match(/\/pull\/(\d+)/);
+    if (match) return `✓ Merged PR #${match[1]} · worktree cleaned`;
+  }
+  return "✓ Merged · worktree cleaned";
+}
+
 /** Toast copy for a coarse lifecycle event (SSE-driven board activity). */
 export function lifecycleToast(evt: StoryLifecycleEvent): { kind: ToastKind; msg: string } | undefined {
   const label = evt.wid ? `${evt.wid} — ${evt.title ?? evt.id}` : evt.title ?? evt.id;
@@ -68,13 +76,13 @@ export function lifecycleToast(evt: StoryLifecycleEvent): { kind: ToastKind; msg
     queued: { kind: "info", msg: `Queued ${label}` },
     started: { kind: "info", msg: `Started ${label}` },
     review: { kind: "success", msg: `Review ready: ${label}` },
-    done: { kind: "success", msg: `Merged ${label}` },
+    done: { kind: "success", msg: formatMergeSuccessToast(evt.pr) },
     abandoned: { kind: "info", msg: `Abandoned ${label}` },
     unqueued: { kind: "info", msg: `Moved ${label} to backlog` },
     drafted: { kind: "success", msg: `Drafted ${label}` },
     "file-requested": { kind: "info", msg: `Filing requested: ${label}` },
     filed: { kind: "success", msg: `Filed ${label}` },
-    merged: { kind: "success", msg: `Merged ${label}` },
+    merged: { kind: "success", msg: formatMergeSuccessToast(evt.pr) },
     escalated: { kind: "info", msg: `Escalated ${label}` },
     purged: { kind: "info", msg: `Purged ${label} — GitHub issue closed` },
   };

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useState, useEffect, type CSSProperties, type ReactNode } from "react";
 import type { Handoff, RunRecord, Story, StoryDetail } from "arc-contracts";
 import { dispatchBlockReason } from "arc-contracts";
 import type { BoardStore, RefineAction } from "../lib/boardStore";
@@ -16,6 +16,8 @@ import {
 } from "../lib/boardStore";
 import { useDialog } from "../lib/useDialog";
 import { buildContractRows } from "../lib/delegationContract";
+import { parseBoardActionError } from "../lib/boardActionError";
+import { MergeBlockedCallout } from "./MergeBlockedCallout";
 import { Markdown } from "./Markdown";
 
 interface StoryDrawerProps {
@@ -26,7 +28,6 @@ interface StoryDrawerProps {
 export function StoryDrawer({ store, detail }: StoryDrawerProps) {
   const boardStory = store.getState().stories[detail.story.id];
   const story = boardStory ?? detail.story;
-  const boardConnected = store.getState().status === "connected";
   const { runs, handoff } = detail;
   const lanes = boardStory ? workerLanes(boardStory) : [];
   const activeLaneCount = lanes.filter((lane) => lane.status === "running").length;
@@ -157,7 +158,7 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
         {lanes.length > 0 && (
           <Section
             label="Delegated run · parallel workers"
-            meta={boardConnected && activeLaneCount > 0 ? <span className="sq-live-label"><span className="sq-dot" />LIVE</span> : null}
+            meta={activeLaneCount > 0 ? <span className="sq-live-label"><span className="sq-dot" />LIVE</span> : null}
           >
             <div className="sq-lanes">
               {lanes.map((lane) => (
@@ -475,8 +476,38 @@ function RefineActions({ store, story }: { store: BoardStore; story: Story }) {
   );
 }
 
+function useMergePhase(busy: boolean) {
+  const [phase, setPhase] = useState<"sync" | "checks" | "merge">("sync");
+
+  useEffect(() => {
+    if (!busy) return;
+    setPhase("sync");
+    const checksTimer = setTimeout(() => setPhase("checks"), 3000);
+    const mergeTimer = setTimeout(() => setPhase("merge"), 10000);
+    return () => {
+      clearTimeout(checksTimer);
+      clearTimeout(mergeTimer);
+    };
+  }, [busy]);
+
+  const labels: Record<typeof phase, string> = {
+    sync: "Syncing branch…",
+    checks: "Waiting for Merge Gate…",
+    merge: "Merging…",
+  };
+
+  return busy ? labels[phase] : null;
+}
+
 function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
   const { busy, error, run } = useStoryAction();
+  const phaseLabel = useMergePhase(busy);
+  const structuredError = error ? parseBoardActionError(error) : null;
+
+  const buttonLabel = busy
+    ? (phaseLabel ?? "Syncing branch…")
+    : "✓ Merge PR & clean worktree";
+
   return (
     <Section label="Review decision">
       <div className="sq-action-row">
@@ -486,10 +517,25 @@ function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
           disabled={busy}
           onClick={() => void run(() => store.mergeStory(story.id))}
         >
-          Merge PR &amp; clean worktree
+          {busy && <span className="sq-merge-phase__spinner" aria-hidden />}
+          {buttonLabel}
         </button>
       </div>
-      {error && <div className="connect-bar__error">{error}</div>}
+      {busy && phaseLabel && (
+        <p className="sq-merge-phase" aria-live="polite">
+          <span className="sq-merge-phase__spinner" aria-hidden />
+          {phaseLabel}
+        </p>
+      )}
+      {structuredError ? (
+        <MergeBlockedCallout
+          error={structuredError}
+          story={story}
+          onRetry={() => void run(() => store.mergeStory(story.id))}
+        />
+      ) : (
+        error && <div className="connect-bar__error">{error}</div>
+      )}
     </Section>
   );
 }

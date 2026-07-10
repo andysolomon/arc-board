@@ -81,6 +81,7 @@ export interface StoryLifecycleEvent {
   wid?: string;
   title?: string;
   column?: string;
+  pr?: string;
 }
 
 export type BoardListener = (state: BoardState) => void;

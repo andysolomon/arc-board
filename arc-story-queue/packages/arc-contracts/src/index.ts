@@ -352,6 +352,53 @@ export interface StoryDetail {
   handoff: Handoff | null;
 }
 
+export type BoardActionErrorCode =
+  | "checks_failed"
+  | "checks_pending"
+  | "branch_policy"
+  | "behind_base"
+  | "already_merged"
+  | "pr_closed"
+  | "graphql"
+  | "timeout"
+  | "unknown";
+
+export interface BoardActionError {
+  code: BoardActionErrorCode;
+  title: string;
+  detail: string;
+  actions: string[];
+  retryable?: boolean;
+  raw?: string;
+}
+
+const BOARD_ACTION_ERROR_CODES = new Set<BoardActionErrorCode>([
+  "checks_failed",
+  "checks_pending",
+  "branch_policy",
+  "behind_base",
+  "already_merged",
+  "pr_closed",
+  "graphql",
+  "timeout",
+  "unknown",
+]);
+
+export function isBoardActionError(value: unknown): value is BoardActionError {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as BoardActionError;
+  return (
+    typeof candidate.code === "string" &&
+    BOARD_ACTION_ERROR_CODES.has(candidate.code) &&
+    typeof candidate.title === "string" &&
+    typeof candidate.detail === "string" &&
+    Array.isArray(candidate.actions) &&
+    candidate.actions.every((action) => typeof action === "string") &&
+    (candidate.retryable === undefined || typeof candidate.retryable === "boolean") &&
+    (candidate.raw === undefined || typeof candidate.raw === "string")
+  );
+}
+
 type JsonSchema = Record<string, unknown>;
 
 const nonEmptyString = { type: "string", minLength: 1 } as const;
@@ -605,6 +652,35 @@ export const projectSchema: JsonSchema = {
   additionalProperties: false,
 };
 
+export const boardActionErrorSchema: JsonSchema = {
+  $schema: "http://json-schema.org/draft-07/schema#",
+  $id: "https://arc.dev/schema/board-action-error.json",
+  title: "BoardActionError",
+  type: "object",
+  required: ["code", "title", "detail", "actions"],
+  properties: {
+    code: {
+      enum: [
+        "checks_failed",
+        "checks_pending",
+        "branch_policy",
+        "behind_base",
+        "already_merged",
+        "pr_closed",
+        "graphql",
+        "timeout",
+        "unknown",
+      ],
+    },
+    title: nonEmptyString,
+    detail: { type: "string" },
+    actions: stringArraySchema,
+    retryable: { type: "boolean" },
+    raw: { type: "string" },
+  },
+  additionalProperties: false,
+};
+
 export const schemas = {
   story: storySchema,
   plan: planSchema,
@@ -612,6 +688,7 @@ export const schemas = {
   handoff: handoffSchema,
   runRecord: runRecordSchema,
   project: projectSchema,
+  boardActionError: boardActionErrorSchema,
 } as const;
 
 let ajvInstance: Ajv | null = null;

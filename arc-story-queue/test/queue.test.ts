@@ -13,7 +13,16 @@ import {
   isDispatchEligible,
   mutexKeysFromTags,
   storyMutexKeys,
+  type BoardActionError,
 } from "arc-contracts";
+
+const ARC_ACTION_ERROR_PREFIX = "ARC_ACTION_ERROR:";
+
+function parseMergeActionError(error: unknown): BoardActionError | null {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!message.startsWith(ARC_ACTION_ERROR_PREFIX)) return null;
+  return JSON.parse(message.slice(ARC_ACTION_ERROR_PREFIX.length)) as BoardActionError;
+}
 
 function makeStory(overrides: Partial<Story> = {}): Story {
   return {
@@ -47,12 +56,16 @@ function makeStory(overrides: Partial<Story> = {}): Story {
   };
 }
 
-function makeQueue(maxParallel = 2, commandRunner?: ConstructorParameters<typeof QueueManager>[1]["commandRunner"]) {
+function makeQueue(
+  maxParallel = 2,
+  commandRunner?: ConstructorParameters<typeof QueueManager>[1]["commandRunner"],
+  queueConfig: Partial<ConstructorParameters<typeof QueueManager>[0]> = {}
+) {
   const store = new StoryStore(":memory:");
   const registry = new SessionRegistry();
   const sse = new SseHub();
   const queue = new QueueManager(
-    { worktreeRoot: "/tmp/wt", maxParallel },
+    { worktreeRoot: "/tmp/wt", maxParallel, ...queueConfig },
     { store, registry, sse, commandRunner }
   );
   return { store, registry, queue };
@@ -324,11 +337,17 @@ describe("QueueManager parallelism law", () => {
     expect(queue.isWriteLocked("/wt/b")).toBe(true);
   });
 
-  it("merge() deterministically merges the PR, removes the worktree, releases the lock, and marks done", async () => {
+  it("merge() skips update-branch when already CLEAN, merges, removes the worktree, releases the lock, and marks done", async () => {
     const ghCalls: string[][] = [];
     const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
       if (file === "gh") {
         ghCalls.push(args);
+        if (args.includes("state,mergedAt")) {
+          return Buffer.from(JSON.stringify({ state: "OPEN", mergedAt: null }));
+        }
+        if (args.includes("mergeStateStatus,statusCheckRollup")) {
+          return Buffer.from(JSON.stringify({ mergeStateStatus: "CLEAN", statusCheckRollup: [] }));
+        }
         return Buffer.from("");
       }
       return execFileSync(file, args, options);
@@ -346,13 +365,236 @@ describe("QueueManager parallelism law", () => {
 
     const merged = await queue.merge(story.id);
 
-    expect(ghCalls).toEqual([["pr", "merge", "12", "--merge", "--delete-branch", "--repo", "test/repo"]]);
+    expect(ghCalls).toEqual([
+      ["pr", "view", "12", "--json", "state,mergedAt", "--repo", "test/repo"],
+      ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
+      ["pr", "merge", "12", "--merge", "--delete-branch", "--repo", "test/repo"],
+    ]);
     expect(merged.column).toBe("done");
     expect(merged.prState).toBe("merged");
-    expect(merged.doneAt).toBeTypeOf("number");
     expect(merged.worktree).toBe("");
     expect(existsSync(worktree)).toBe(false);
     expect(queue.isWriteLocked(worktree)).toBe(false);
+  });
+
+  it("merge() syncs the PR branch when BEHIND, waits for checks, then merges", async () => {
+    const ghCalls: string[][] = [];
+    let readinessPolls = 0;
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push(args);
+        if (args.includes("state,mergedAt")) {
+          return Buffer.from(JSON.stringify({ state: "OPEN", mergedAt: null }));
+        }
+        if (args.includes("mergeStateStatus,statusCheckRollup")) {
+          readinessPolls += 1;
+          if (readinessPolls === 1) {
+            return Buffer.from(
+              JSON.stringify({
+                mergeStateStatus: "BEHIND",
+                statusCheckRollup: [{ name: "Test arc-story-queue", status: "IN_PROGRESS", conclusion: null }],
+              })
+            );
+          }
+          return Buffer.from(JSON.stringify({ mergeStateStatus: "CLEAN", statusCheckRollup: [] }));
+        }
+        return Buffer.from("");
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner, { mergeReadinessPollMs: 1, mergeReadinessMaxWaitMs: 50 });
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "review",
+      pr: "https://github.com/test/repo/pull/12",
+      prState: "open",
+      worktree,
+    });
+    store.upsertStory(story);
+    queue.acquireWrite(worktree, story.id);
+
+    const merged = await queue.merge(story.id);
+
+    expect(ghCalls).toEqual([
+      ["pr", "view", "12", "--json", "state,mergedAt", "--repo", "test/repo"],
+      ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
+      ["pr", "update-branch", "12", "--repo", "test/repo"],
+      ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
+      ["pr", "merge", "12", "--merge", "--delete-branch", "--repo", "test/repo"],
+    ]);
+    expect(merged.column).toBe("done");
+    expect(merged.prState).toBe("merged");
+  });
+
+  it("merge() on an already-merged GitHub PR skips update-branch and merge, then finishes done", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        return Buffer.from(JSON.stringify({ state: "MERGED", mergedAt: "2026-07-08T00:00:00Z" }));
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "review",
+      pr: "https://github.com/test/repo/pull/12",
+      prState: "open",
+      worktree,
+    });
+    store.upsertStory(story);
+    queue.acquireWrite(worktree, story.id);
+
+    const merged = await queue.merge(story.id);
+
+    expect(ghCalls).toEqual([["pr", "view", "12", "--json", "state,mergedAt", "--repo", "test/repo"]]);
+    expect(merged.column).toBe("done");
+    expect(merged.prState).toBe("merged");
+    expect(merged.worktree).toBe("");
+    expect(existsSync(worktree)).toBe(false);
+    expect(queue.isWriteLocked(worktree)).toBe(false);
+  });
+
+  it("merge() rejects failing checks before calling gh pr merge", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        if (args.includes("state,mergedAt")) {
+          return Buffer.from(JSON.stringify({ state: "OPEN", mergedAt: null }));
+        }
+        if (args.includes("mergeStateStatus,statusCheckRollup")) {
+          return Buffer.from(
+            JSON.stringify({
+              mergeStateStatus: "BLOCKED",
+              statusCheckRollup: [
+                { name: "Test arc-story-queue", status: "COMPLETED", conclusion: "FAILURE" },
+                { name: "commitlint", status: "IN_PROGRESS", conclusion: null },
+              ],
+            })
+          );
+        }
+        return Buffer.from("");
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "review",
+      pr: "https://github.com/test/repo/pull/12",
+      prState: "open",
+      worktree,
+    });
+    store.upsertStory(story);
+
+    await expect(queue.merge(story.id)).rejects.toSatisfy((error: unknown) => {
+      const parsed = parseMergeActionError(error);
+      expect(parsed?.code).toBe("checks_failed");
+      expect(parsed?.detail).toMatch(/mergeStateStatus=BLOCKED/);
+      expect(parsed?.detail).toMatch(/failing checks: Test arc-story-queue/);
+      expect(parsed?.detail).toMatch(/pending checks: commitlint/);
+      return true;
+    });
+    expect(ghCalls).toEqual([
+      ["pr", "view", "12", "--json", "state,mergedAt", "--repo", "test/repo"],
+      ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
+    ]);
+    expect(store.getStory(story.id)?.column).toBe("review");
+  });
+
+  it("merge() ignores stale FAILURE rollup entries when a newer SUCCESS exists for the same check", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push(args);
+        if (args.includes("state,mergedAt")) {
+          return Buffer.from(JSON.stringify({ state: "OPEN", mergedAt: null }));
+        }
+        if (args.includes("mergeStateStatus,statusCheckRollup")) {
+          return Buffer.from(
+            JSON.stringify({
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [
+                {
+                  name: "Merge Gate",
+                  status: "COMPLETED",
+                  conclusion: "FAILURE",
+                  startedAt: "2026-07-08T10:00:00Z",
+                  completedAt: "2026-07-08T10:01:00Z",
+                },
+                {
+                  name: "Merge Gate",
+                  status: "COMPLETED",
+                  conclusion: "SUCCESS",
+                  startedAt: "2026-07-08T11:00:00Z",
+                  completedAt: "2026-07-08T11:01:00Z",
+                },
+              ],
+            })
+          );
+        }
+        return Buffer.from("");
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "review",
+      pr: "https://github.com/test/repo/pull/12",
+      prState: "open",
+      worktree,
+    });
+    store.upsertStory(story);
+    queue.acquireWrite(worktree, story.id);
+
+    const merged = await queue.merge(story.id);
+
+    expect(merged.column).toBe("done");
+    expect(ghCalls.some((args) => args[1] === "merge")).toBe(true);
+  });
+
+  it("merge() times out when checks stay pending after update-branch", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        if (args.includes("state,mergedAt")) {
+          return Buffer.from(JSON.stringify({ state: "OPEN", mergedAt: null }));
+        }
+        if (args.includes("mergeStateStatus,statusCheckRollup")) {
+          return Buffer.from(
+            JSON.stringify({
+              mergeStateStatus: "BLOCKED",
+              statusCheckRollup: [{ name: "commitlint", status: "IN_PROGRESS", conclusion: null }],
+            })
+          );
+        }
+        return Buffer.from("");
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner, { mergeReadinessPollMs: 1, mergeReadinessMaxWaitMs: 10 });
+    const { worktree } = makeGitFixture();
+    const story = makeStory({
+      column: "review",
+      pr: "https://github.com/test/repo/pull/12",
+      prState: "open",
+      worktree,
+    });
+    store.upsertStory(story);
+
+    await expect(queue.merge(story.id)).rejects.toSatisfy((error: unknown) => {
+      const parsed = parseMergeActionError(error);
+      expect(parsed?.code).toBe("timeout");
+      expect(parsed?.detail).toMatch(/pending checks: commitlint/);
+      return true;
+    });
+    expect(ghCalls.some((args) => args[1] === "merge")).toBe(false);
+    expect(ghCalls.some((args) => args[1] === "update-branch")).toBe(true);
+    expect(store.getStory(story.id)?.column).toBe("review");
   });
 
   it("reconcileReviewPrs() marks externally merged GitHub PRs done without re-merging", async () => {
