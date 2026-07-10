@@ -10,6 +10,7 @@ interface BoardColumnProps {
   column: Column;
   stories: BoardStory[];
   emptyHint: string;
+  boardConnected?: boolean;
   onEnqueue?: (id: string) => void;
   onOpen?: (id: string) => void;
   // pointer drag-and-drop
@@ -34,6 +35,7 @@ export function BoardColumn({
   column,
   stories,
   emptyHint,
+  boardConnected = false,
   onEnqueue,
   onOpen,
   draggableCards,
@@ -57,7 +59,7 @@ export function BoardColumn({
         <span className="board-column__label">{COLUMN_LABELS[column]}</span>
         <span className="board-column__count">{stories.length}</span>
         {isQueued && <span className="board-column__chip board-column__chip--queued">In order</span>}
-        {isRunning && <span className="board-column__chip board-column__chip--running">Live</span>}
+        {boardConnected && isRunning && <span className="board-column__chip board-column__chip--running">Live</span>}
       </header>
       <div className="board-column__cards">
         {stories.map((story, i) => (

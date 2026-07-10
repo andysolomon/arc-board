@@ -26,6 +26,7 @@ export interface DaemonOptions {
   worktreeRoot?: string;
   maxParallel?: number;
   prReconcileIntervalMs?: number;
+  pingIntervalMs?: number;
   fsRoot?: string;
 }
 
@@ -723,6 +724,21 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     prReconcileTimer.unref();
   }
 
+  const pingIntervalMs = opts.pingIntervalMs ?? 25_000;
+  const pingTimer = pingIntervalMs > 0
+    ? setInterval(() => {
+        void ctx.sse.ping();
+      }, pingIntervalMs)
+    : undefined;
+  if (
+    pingTimer &&
+    typeof pingTimer === "object" &&
+    "unref" in pingTimer &&
+    typeof pingTimer.unref === "function"
+  ) {
+    pingTimer.unref();
+  }
+
   return {
     server: httpServer,
     port,
@@ -734,6 +750,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     close: async () => {
       for (const t of transports.values()) await t.close();
       if (prReconcileTimer) clearInterval(prReconcileTimer);
+      if (pingTimer) clearInterval(pingTimer);
       transports.clear();
       sessionServers.clear();
       ctx.store.close();

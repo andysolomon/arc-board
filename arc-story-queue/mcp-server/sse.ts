@@ -50,6 +50,11 @@ export class SseHub {
     await this.send({ type: "story.event", ...event });
   }
 
+  /** Broadcast a heartbeat so subscribers can detect a live SSE stream. */
+  async ping(): Promise<void> {
+    await this.send({ type: "ping", at: Date.now() });
+  }
+
   private async send(payload: Record<string, unknown>): Promise<void> {
     const data = JSON.stringify(payload);
     await Promise.all(

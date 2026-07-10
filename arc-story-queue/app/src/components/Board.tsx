@@ -185,6 +185,7 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
             <BoardColumn
               key={column}
               column={column}
+              boardConnected={state.status === "connected"}
               stories={column === "queued" ? store.queueStories() : store.storiesByColumn(column)}
               inProgressStories={column === "queued" ? inProgress : undefined}
               emptyHint=""
