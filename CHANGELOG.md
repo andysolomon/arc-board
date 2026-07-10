@@ -1,3 +1,10 @@
+## [1.21.1](https://github.com/andysolomon/arc-board/compare/v1.21.0...v1.21.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* **app:** pin tauri dev server to IPv4 127.0.0.1 with strictPort ([#87](https://github.com/andysolomon/arc-board/issues/87)) ([ca5c971](https://github.com/andysolomon/arc-board/commit/ca5c971bbd463b12d04de74848201ad274a8f51b))
+
 # [1.21.0](https://github.com/andysolomon/arc-board/compare/v1.20.0...v1.21.0) (2026-07-10)
 
 
