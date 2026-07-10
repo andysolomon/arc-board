@@ -18,7 +18,8 @@ export type LifecycleKind =
   | "file-requested"
   | "filed"
   | "merged"
-  | "escalated";
+  | "escalated"
+  | "purged";
 
 export interface StoryLifecycleEvent {
   kind: LifecycleKind;

@@ -139,6 +139,12 @@ export class StoryStore {
     this.db.prepare("DELETE FROM queue_order WHERE story_id = ?").run(storyId);
   }
 
+  deleteStory(id: string): void {
+    this.db.prepare("DELETE FROM stories WHERE id = ?").run(id);
+    this.db.prepare("DELETE FROM queue_order WHERE story_id = ?").run(id);
+    this.db.prepare("DELETE FROM handoffs WHERE story_id = ?").run(id);
+  }
+
   queueIds(): string[] {
     const rows = this.db
       .prepare("SELECT story_id FROM queue_order ORDER BY position ASC")

@@ -56,6 +56,7 @@ export function lifecycleActivityMeta(evt: StoryLifecycleEvent): ActivityMeta {
     filed: { icon: "⊕", subject: "Fable", text: `filed ${label}`, tone: "filed" },
     merged: { icon: "✓", subject: "You", text: `merged ${label}`, tone: "merged" },
     escalated: { icon: "↥", subject: "Fable", text: `escalated ${label}`, tone: "escalated" },
+    purged: { icon: "↯", subject: "Fable", text: `purged ${label} — issue closed`, tone: "abandoned" },
   };
   return map[evt.kind];
 }
@@ -75,6 +76,7 @@ export function lifecycleToast(evt: StoryLifecycleEvent): { kind: ToastKind; msg
     filed: { kind: "success", msg: `Filed ${label}` },
     merged: { kind: "success", msg: `Merged ${label}` },
     escalated: { kind: "info", msg: `Escalated ${label}` },
+    purged: { kind: "info", msg: `Purged ${label} — GitHub issue closed` },
   };
   return map[evt.kind];
 }
