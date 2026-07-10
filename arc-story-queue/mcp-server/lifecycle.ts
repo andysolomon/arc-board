@@ -45,6 +45,7 @@ export class StoryLifecycle {
     if (!story) throw new Error(`Unknown story: ${id}`);
     if (story.column !== "in_progress") throw new Error("Only in-progress stories can be started");
     if (!story.worktree) throw new Error("Story has no worktree");
+    this.queue.clearHandoff(id);
     return result(story, [storyEvent("started", story)]);
   }
 

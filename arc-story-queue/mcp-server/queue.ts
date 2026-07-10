@@ -153,7 +153,12 @@ export class QueueManager {
       throw new Error(`Write lock already held for worktree ${wtDir}`);
     }
 
+    this.clearHandoff(id);
     return story;
+  }
+
+  clearHandoff(id: string): void {
+    this.store.deleteHandoff(id);
   }
 
   async get(id: string): Promise<Story | null> {
