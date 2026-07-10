@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/andysolomon/arc-board/compare/v1.21.5...v1.22.0) (2026-07-10)
+
+
+### Features
+
+* **W-000037:** auto-clean Done column after 30-minute retention ([#97](https://github.com/andysolomon/arc-board/issues/97)) ([f66977f](https://github.com/andysolomon/arc-board/commit/f66977f9b52d19e03f073b3a621139f979c343ec)), closes [#93](https://github.com/andysolomon/arc-board/issues/93)
+
 ## [1.21.5](https://github.com/andysolomon/arc-board/compare/v1.21.4...v1.21.5) (2026-07-10)
 
 
