@@ -159,7 +159,14 @@ describe("StoryLifecycle", () => {
 
     expect(completed.value).toEqual({ ok: true });
     expect(completed.events).toEqual([
-      { kind: "review", id: story.id, wid: story.wid, title: story.title, column: "review" },
+      {
+        kind: "review",
+        id: story.id,
+        wid: story.wid,
+        title: story.title,
+        column: "review",
+        pr: "local://arc-story-queue/W-000001",
+      },
     ]);
     expect(store.getStory(story.id)?.column).toBe("review");
     expect(store.getRunsForStory(story.id)).toHaveLength(1);
@@ -188,7 +195,14 @@ describe("StoryLifecycle", () => {
     const merged = await lifecycle.merge(story.id);
 
     expect(merged.events).toEqual([
-      { kind: "done", id: story.id, wid: story.wid, title: story.title, column: "done" },
+      {
+        kind: "done",
+        id: story.id,
+        wid: story.wid,
+        title: story.title,
+        column: "done",
+        pr: "local://arc-story-queue/W-000001",
+      },
     ]);
     expect(merged.value.column).toBe("done");
     expect(merged.value.worktree).toBe("");

@@ -813,7 +813,16 @@ export class BoardStore {
   }
 
   async mergeStory(id: string): Promise<Story> {
-    const story = await this.sync.call<Story>("story.merge", { id });
+    let result: unknown;
+    try {
+      result = await this.sync.callRaw("story.merge", { id });
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : "Failed to merge story");
+    }
+    const r = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+    const text = r.content?.find((c) => c.type === "text")?.text;
+    if (r.isError) throw new Error(text ?? "Failed to merge story");
+    const story = parseToolResult<Story>(result);
     this.updateStoryAndDetail(story);
     await Promise.all([this.loadQueue(), this.loadRuns()]);
     return story;

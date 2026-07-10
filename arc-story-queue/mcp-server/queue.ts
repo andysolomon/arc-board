@@ -18,12 +18,22 @@ import {
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
 import type { StoryStore } from "./store.js";
+import { conventionalTitle } from "./conventional-title.js";
+import {
+  boardActionErrorFromMergeFailure,
+  throwMergeError,
+  type MergeReadiness,
+} from "./merge-errors.js";
 import { validateHandoff, validatePlan, validateProject, validateRunRecord, validateStory } from "./validate.js";
 import { ghListIssues, importIssuesToStore, type IssueLister } from "./github-import.js";
 
 export interface QueueConfig {
   worktreeRoot: string;
   maxParallel: number;
+  /** Poll interval while waiting for PR checks after update-branch (default 3s). */
+  mergeReadinessPollMs?: number;
+  /** Max wait for PR checks after update-branch (default 120s). */
+  mergeReadinessMaxWaitMs?: number;
 }
 
 export type CommandRunner = (
@@ -312,7 +322,7 @@ export class QueueManager {
           "--repo", story.repo,
           "--head", branch,
           "--base", base,
-          "--title", story.title,
+          "--title", conventionalTitle(story),
           "--body", `Auto-opened from arc-story-queue for ${story.wid}.`,
         ],
         { encoding: "utf8", stdio: "pipe" }
@@ -434,6 +444,145 @@ export class QueueManager {
     const args = ["pr", "view", this.prSelector(pr), "--json", "state,mergedAt", "--repo", story.repo];
     const raw = this.runCommand("gh", args, { encoding: "utf8", stdio: "pipe" }).toString();
     return JSON.parse(raw) as { state: string; mergedAt?: string | null };
+  }
+
+  private ghRepoArgs(story: Story): string[] {
+    return story.repo ? ["--repo", story.repo] : [];
+  }
+
+  private execErrorMessage(label: string, error: unknown): string {
+    if (error && typeof error === "object") {
+      const e = error as { message?: string; stderr?: Buffer | string; stdout?: Buffer | string };
+      const stderr = e.stderr
+        ? (Buffer.isBuffer(e.stderr) ? e.stderr.toString() : e.stderr).trim()
+        : "";
+      const stdout = e.stdout
+        ? (Buffer.isBuffer(e.stdout) ? e.stdout.toString() : e.stdout).trim()
+        : "";
+      const parts = [e.message?.trim(), stderr, stdout].filter(Boolean);
+      if (parts.length) return `${label}: ${parts.join("\n")}`;
+    }
+    return `${label}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  private runGhOrThrow(args: readonly string[], label: string): string {
+    try {
+      return this.runCommand("gh", args, { encoding: "utf8", stdio: "pipe" }).toString();
+    } catch (error) {
+      throwMergeError(
+        boardActionErrorFromMergeFailure(this.execErrorMessage(label, error))
+      );
+    }
+  }
+
+  private statusCheckTimestamp(check: {
+    startedAt?: string | null;
+    completedAt?: string | null;
+  }): number {
+    const raw = check.completedAt ?? check.startedAt;
+    if (!raw) return 0;
+    const ms = Date.parse(raw);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  private latestStatusChecks(
+    rollup: Array<{
+      name?: string;
+      status?: string;
+      conclusion?: string | null;
+      startedAt?: string | null;
+      completedAt?: string | null;
+    }>
+  ): typeof rollup {
+    const byName = new Map<string, (typeof rollup)[number]>();
+    for (const check of rollup) {
+      const name = check.name ?? "unknown check";
+      const existing = byName.get(name);
+      if (!existing || this.statusCheckTimestamp(check) >= this.statusCheckTimestamp(existing)) {
+        byName.set(name, check);
+      }
+    }
+    return [...byName.values()];
+  }
+
+  private viewPrMergeReadiness(story: Story): {
+    mergeStateStatus: string;
+    failingChecks: string[];
+    pendingChecks: string[];
+  } {
+    const pr = story.pr?.trim();
+    if (!pr) throw new Error(`Story ${story.id} has no PR to inspect`);
+
+    const args = [
+      "pr",
+      "view",
+      this.prSelector(pr),
+      "--json",
+      "mergeStateStatus,statusCheckRollup",
+      ...this.ghRepoArgs(story),
+    ];
+    const raw = this.runGhOrThrow(args, "gh pr view failed");
+    const parsed = JSON.parse(raw) as {
+      mergeStateStatus?: string;
+      statusCheckRollup?: Array<{
+        name?: string;
+        status?: string;
+        conclusion?: string | null;
+        startedAt?: string | null;
+        completedAt?: string | null;
+      }>;
+    };
+    const rollup = this.latestStatusChecks(parsed.statusCheckRollup ?? []);
+    const failingChecks = rollup
+      .filter((check) => check.status === "COMPLETED" && check.conclusion === "FAILURE")
+      .map((check) => check.name ?? "unknown check");
+    const pendingChecks = rollup
+      .filter(
+        (check) =>
+          check.status === "IN_PROGRESS" || check.status === "QUEUED" || check.status === "PENDING"
+      )
+      .map((check) => check.name ?? "unknown check");
+    return {
+      mergeStateStatus: parsed.mergeStateStatus ?? "UNKNOWN",
+      failingChecks,
+      pendingChecks,
+    };
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async waitForMergeReadiness(story: Story): Promise<MergeReadiness> {
+    const intervalMs = this.cfg.mergeReadinessPollMs ?? 3_000;
+    const maxWaitMs = this.cfg.mergeReadinessMaxWaitMs ?? 120_000;
+    const deadline = Date.now() + maxWaitMs;
+
+    while (Date.now() < deadline) {
+      const readiness = this.viewPrMergeReadiness(story);
+      if (readiness.failingChecks.length) {
+        throwMergeError(
+          boardActionErrorFromMergeFailure("PR merge blocked by failing checks", readiness)
+        );
+      }
+      if (readiness.mergeStateStatus === "CLEAN") {
+        return readiness;
+      }
+      await this.sleep(intervalMs);
+    }
+
+    const readiness = this.viewPrMergeReadiness(story);
+    if (readiness.failingChecks.length) {
+      throwMergeError(
+        boardActionErrorFromMergeFailure("PR merge blocked by failing checks", readiness)
+      );
+    }
+    throwMergeError(
+      boardActionErrorFromMergeFailure(
+        `timed out waiting for required checks (pending: ${readiness.pendingChecks.join(", ") || "none"})`,
+        readiness
+      )
+    );
   }
 
   private finishMergedStory(story: Story): Story {
@@ -572,14 +721,58 @@ export class QueueManager {
     return result;
   }
 
-  private mergePr(story: Story): void {
+  private async mergePr(story: Story): Promise<void> {
     const pr = story.pr?.trim();
     if (!pr) throw new Error(`Story ${story.id} has no PR to merge`);
     if (story.prState === "merged" || this.isLocalPr(pr)) return;
 
-    const args = ["pr", "merge", this.prSelector(pr), "--merge", "--delete-branch"];
-    if (story.repo) args.push("--repo", story.repo);
-    this.runCommand("gh", args, { stdio: "pipe" });
+    const selector = this.prSelector(pr);
+    const repoArgs = this.ghRepoArgs(story);
+
+    let readiness = this.viewPrMergeReadiness(story);
+    if (readiness.failingChecks.length) {
+      throwMergeError(
+        boardActionErrorFromMergeFailure("PR merge blocked by failing checks", readiness)
+      );
+    }
+
+    const skipUpdateBranch =
+      readiness.mergeStateStatus === "CLEAN" && readiness.pendingChecks.length === 0;
+
+    if (!skipUpdateBranch) {
+      this.runGhOrThrow(["pr", "update-branch", selector, ...repoArgs], "gh pr update-branch failed");
+      readiness = await this.waitForMergeReadiness(story);
+    }
+
+    if (readiness.mergeStateStatus !== "CLEAN") {
+      throwMergeError(
+        boardActionErrorFromMergeFailure(
+          `PR not ready to merge (mergeStateStatus=${readiness.mergeStateStatus})`,
+          readiness
+        )
+      );
+    }
+
+    try {
+      this.runCommand(
+        "gh",
+        ["pr", "merge", selector, "--merge", "--delete-branch", ...repoArgs],
+        { stdio: "pipe" }
+      );
+    } catch (error) {
+      let postMergeReadiness: MergeReadiness | undefined;
+      try {
+        postMergeReadiness = this.viewPrMergeReadiness(story);
+      } catch {
+        // Ignore secondary readiness lookup failures.
+      }
+      throwMergeError(
+        boardActionErrorFromMergeFailure(
+          this.execErrorMessage("gh pr merge failed", error),
+          postMergeReadiness
+        )
+      );
+    }
   }
 
   private cleanupWorktree(story: Story): void {
@@ -608,7 +801,19 @@ export class QueueManager {
     if (story.column !== "review") throw new Error("Only review stories can be merged");
     if (!story.pr) throw new Error(`Story ${id} has no open PR`);
 
-    this.mergePr(story);
+    const pr = story.pr.trim();
+    if (!this.isLocalPr(pr)) {
+      const viewed = this.viewPr(story);
+      const state = viewed.state.toUpperCase();
+      if (state === "MERGED" || !!viewed.mergedAt) {
+        return this.finishMergedStory(story);
+      }
+      if (state === "CLOSED") {
+        return this.evictClosedPr(story);
+      }
+    }
+
+    await this.mergePr(story);
     return this.finishMergedStory(story);
   }
 

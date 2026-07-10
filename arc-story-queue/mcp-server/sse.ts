@@ -27,6 +27,7 @@ export interface StoryLifecycleEvent {
   wid?: string;
   title?: string;
   column?: string;
+  pr?: string;
 }
 
 /** Fan-out story.update payloads to all MCP SSE subscribers. */

@@ -13,7 +13,14 @@ function result<T>(value: T, events: StoryLifecycleEvent[] = []): LifecycleResul
 }
 
 function storyEvent(kind: StoryLifecycleEvent["kind"], story: Story): StoryLifecycleEvent {
-  return { kind, id: story.id, wid: story.wid, title: story.title, column: story.column };
+  return {
+    kind,
+    id: story.id,
+    wid: story.wid,
+    title: story.title,
+    column: story.column,
+    pr: story.pr ?? undefined,
+  };
 }
 
 /**
