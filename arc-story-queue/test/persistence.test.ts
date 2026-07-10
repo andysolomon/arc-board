@@ -52,7 +52,7 @@ describe("daemon persistence (file-backed SQLite)", () => {
     });
     daemon.store.upsertStory(makeStory("p1"));
     daemon.store.enqueue("p1");
-    daemon.queue.setConfig({ maxParallel: 5, autoRun: true });
+    daemon.queue.setConfig({ maxParallel: 5, autoRun: true, requireOrchestrationPlan: false });
     await daemon.close();
 
     // fresh daemon, same db file
@@ -65,7 +65,11 @@ describe("daemon persistence (file-backed SQLite)", () => {
     });
     expect(daemon.store.getStory("p1")?.title).toBe("Persisted story");
     expect(daemon.store.queueIds()).toContain("p1");
-    expect(daemon.queue.getConfig()).toEqual({ autoRun: true, maxParallel: 5 });
+    expect(daemon.queue.getConfig()).toEqual({
+      autoRun: true,
+      maxParallel: 5,
+      requireOrchestrationPlan: false,
+    });
     await daemon.close();
   }, 60_000);
 

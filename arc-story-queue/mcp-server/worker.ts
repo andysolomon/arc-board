@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { Access, Handoff, Project, RouteId, RunRecord, Story } from "arc-contracts";
+import type { Access, Handoff, Project, QueueNextResult, RouteId, RunRecord, Story } from "arc-contracts";
 import { callTool, createDaemonClient, localBranch, localRepoId, runGit } from "./daemon-client.js";
 
 /**
@@ -87,11 +87,11 @@ async function ensureProject(client: Client, opts: WorkerOptions): Promise<strin
   return project.id;
 }
 
-async function pullRunnableStory(client: Client, projectId: string): Promise<Story | null> {
+async function pullRunnableStory(client: Client, projectId: string): Promise<QueueNextResult> {
   const stories = await callTool<Story[]>(client, "stories.list", { projectId });
   const reserved = stories.find((s) => s.column === "in_progress" && s.worktree);
-  if (reserved) return reserved;
-  return callTool<Story | null>(client, "queue.next", { projectId });
+  if (reserved) return { story: reserved };
+  return callTool<QueueNextResult>(client, "queue.next", { projectId });
 }
 
 function verificationStatus(worktree: string): string {
@@ -189,9 +189,14 @@ export async function runWorker(opts: WorkerOptions): Promise<WorkerResult> {
     const projectId = await ensureProject(client, opts);
     const processed: WorkerResult["stories"] = [];
     do {
-      const story = await pullRunnableStory(client, projectId);
+      const dispatched = await pullRunnableStory(client, projectId);
+      const story = dispatched.story;
       if (!story) {
-        log("No queued or reserved story available.");
+        log(
+          dispatched.reason === "awaiting-orchestration-plan"
+            ? "Queued stories are awaiting orchestration plans."
+            : "No queued or reserved story available."
+        );
         break;
       }
       log(`processing ${story.wid} ${story.title}`);

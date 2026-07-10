@@ -33,6 +33,16 @@ function makeStory(overrides: Partial<Story> = {}): Story {
     description: "",
     criteria: [],
     draft: false,
+    orchestration: {
+      status: "planned",
+      route: "codex-implement",
+      backend: "codex",
+      mode: "implement",
+      rationale: "Test fixture is ready to dispatch.",
+      complexity: "low",
+      plannedAt: "2026-07-10T00:00:00.000Z",
+      storyDigest: "test",
+    },
     ...overrides,
   };
 }
@@ -122,7 +132,7 @@ describe("label concurrency groups", () => {
     store.upsertStory(queued);
     store.enqueue("s2");
 
-    expect(await queue.next(project.id)).toBeNull();
+    expect(await queue.next(project.id)).toEqual({ story: null });
     expect(store.getStory("s2")?.column).toBe("queued");
   });
 
@@ -149,7 +159,7 @@ describe("label concurrency groups", () => {
     store.enqueue("s2");
     queue.acquireWrite("/wt/s1", "s1");
 
-    const next = await queue.next(project.id);
+    const next = (await queue.next(project.id)).story;
     expect(next?.id).toBe("s2");
     expect(next?.column).toBe("in_progress");
   });
@@ -184,7 +194,7 @@ describe("label concurrency groups", () => {
     store.upsertStory(s3);
     store.enqueue("s3");
 
-    expect(await queue.next(project.id)).toBeNull();
+    expect((await queue.next(project.id)).story).toBeNull();
     expect(store.getStory("s3")?.column).toBe("queued");
   });
 
@@ -220,7 +230,7 @@ describe("label concurrency groups", () => {
     store.enqueue("s2");
     queue.acquireWrite("/wt/s0", "s0");
 
-    const next = await queue.next(project.id);
+    const next = (await queue.next(project.id)).story;
     expect(next?.id).toBe("s2");
     expect(store.getStory("s1")?.column).toBe("queued");
   });
@@ -248,7 +258,7 @@ describe("label concurrency groups", () => {
     store.enqueue("s2");
     queue.acquireWrite("/wt/s1", "s1");
 
-    const next = await queue.next(project.id);
+    const next = (await queue.next(project.id)).story;
     expect(next?.id).toBe("s2");
     expect(isDispatchEligible(queued, [running], 2)).toBe(true);
   });
@@ -276,7 +286,7 @@ describe("label concurrency groups", () => {
     store.enqueue("s2");
 
     expect(storyMutexKeys(running)).toEqual(["parallel-group: ci"]);
-    expect(await queue.next(project.id)).toBeNull();
+    expect((await queue.next(project.id)).story).toBeNull();
   });
 });
 
@@ -525,7 +535,7 @@ describe("QueueManager parallelism law", () => {
     expect(existsSync(worktree)).toBe(false);
     expect(queue.isWriteLocked(worktree)).toBe(false);
 
-    const next = await queue.next(project.id);
+    const next = (await queue.next(project.id)).story;
     expect(next?.id).toBe(queued.id);
     expect(next?.column).toBe("in_progress");
   });
@@ -682,7 +692,61 @@ describe("QueueManager parallelism law", () => {
     queue.acquireWrite("/wt/1", "s1");
 
     const result = await queue.next(project.id);
-    expect(result).toBeNull();
+    expect(result.story).toBeNull();
+  });
+});
+
+describe("orchestration plan dispatch gate", () => {
+  it("defaults to requiring a plan and dispatches planned B past unplanned A in queue order", async () => {
+    const { store, registry, queue } = makeQueue();
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const awaitingPlan = makeStory({
+      id: "s1",
+      branch: "feat/awaiting-plan",
+      orchestration: { status: "unplanned" },
+    });
+    const planned = makeStory({ id: "s2", branch: "feat/planned" });
+    store.upsertStory(awaitingPlan);
+    store.upsertStory(planned);
+    store.enqueue(awaitingPlan.id);
+    store.enqueue(planned.id);
+
+    expect(store.getConfig().requireOrchestrationPlan).toBe(true);
+    expect((await queue.next(project.id)).story?.id).toBe(planned.id);
+    expect(store.queueIds()).toEqual([awaitingPlan.id]);
+    expect(store.getStory(awaitingPlan.id)?.column).toBe("queued");
+    expect(store.getStory(planned.id)?.column).toBe("in_progress");
+  });
+
+  it("reports awaiting-orchestration-plan without reserving or mutating all unplanned candidates", async () => {
+    const { store, registry, queue } = makeQueue();
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const unplanned = makeStory({ id: "s1", orchestration: { status: "unplanned" } });
+    const planning = makeStory({ id: "s2", branch: "feat/planning", orchestration: { status: "planning" } });
+    store.upsertStory(unplanned);
+    store.upsertStory(planning);
+    store.enqueue(unplanned.id);
+    store.enqueue(planning.id);
+
+    expect(await queue.next(project.id)).toEqual({ story: null, reason: "awaiting-orchestration-plan" });
+    expect(store.queueIds()).toEqual([unplanned.id, planning.id]);
+    expect(store.getStory(unplanned.id)).toMatchObject({ column: "queued", worktree: "" });
+    expect(store.getStory(planning.id)).toMatchObject({ column: "queued", worktree: "" });
+    expect(queue.isWriteLocked("")).toBe(false);
+  });
+
+  it("restores legacy dispatch for unplanned stories when the kill-switch is false", async () => {
+    const { store, registry, queue } = makeQueue();
+    const { repo } = makeGitFixture();
+    const project = attachProject(registry, repo);
+    const story = makeStory({ orchestration: { status: "unplanned" } });
+    store.upsertStory(story);
+    store.enqueue(story.id);
+    expect(store.setConfig({ requireOrchestrationPlan: false })).toMatchObject({ requireOrchestrationPlan: false });
+
+    expect((await queue.next(project.id)).story?.id).toBe(story.id);
   });
 });
 

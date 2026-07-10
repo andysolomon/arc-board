@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { Project, QueueNextResult } from "arc-contracts";
 import { BoardStore, resolveTauriHttpFetch } from "../src/lib/boardStore";
 
 describe("MCP fetch selection", () => {
@@ -8,6 +9,26 @@ describe("MCP fetch selection", () => {
 });
 
 describe("notifications + toasts (store logic)", () => {
+  it("notifies visibly when queue.next is waiting for orchestration plans", async () => {
+    const sync = {
+      call: vi.fn(async (tool: string) => {
+        if (tool === "queue.next") {
+          return { story: null, reason: "awaiting-orchestration-plan" } satisfies QueueNextResult;
+        }
+        if (tool === "queue.list") return [];
+        throw new Error(`Unexpected tool: ${tool}`);
+      }),
+    };
+    const store = new BoardStore("http://127.0.0.1:9/mcp", { storage: null, sync: sync as never });
+    (store as unknown as { state: { project: Project } }).state.project = { id: "project-1" } as Project;
+
+    await expect(store.queueNext()).resolves.toBeNull();
+    expect(store.getNotifications()[0]).toMatchObject({
+      kind: "info",
+      message: expect.stringContaining("awaiting orchestration plan"),
+    });
+  });
+
   it("notify pushes a toast and an unread notification", () => {
     const store = new BoardStore("http://127.0.0.1:9/mcp");
     store.notify("success", "queued a");

@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { IntakeItem, Story } from "arc-contracts";
+import type { IntakeItem, QueueNextResult, Story } from "arc-contracts";
 import { startDaemon, type DaemonHandle } from "../mcp-server/dist/server.js";
 
 // Distinct port from the skeleton (7420) and board-live (7421) E2Es.
@@ -58,6 +58,16 @@ function makeDraftStory(repo: string, id = "story-pipeline-1"): Story {
     criteria: ["guardrail blocks unfiled drafts", "filing unblocks queueing"],
     draft: true,
     issue: null,
+    orchestration: {
+      status: "planned",
+      route: "codex-implement",
+      backend: "codex",
+      mode: "implement",
+      rationale: "The queued fixture has already been planned.",
+      complexity: "low",
+      plannedAt: "2026-07-10T00:00:00.000Z",
+      storyDigest: "test",
+    },
   };
 }
 
@@ -172,12 +182,12 @@ describe("pipeline guardrails E2E (over MCP)", () => {
     expect(queuedStory.column).toBe("queued");
 
     // 6. queue.next picks it up → worktree opened, in_progress, write-lock held.
-    const inProgress = parseToolResult<Story>(
+    const inProgress = parseToolResult<QueueNextResult>(
       (await callGuarded(client, "queue.next", { projectId: project.id })).result!
-    );
-    expect(inProgress.column).toBe("in_progress");
-    expect(existsSync(inProgress.worktree)).toBe(true);
-    expect(daemon.queue.isWriteLocked(inProgress.worktree)).toBe(true);
-    expect(daemon.queue.writeLockHolder(inProgress.worktree)).toBe(draft.id);
+    ).story;
+    expect(inProgress?.column).toBe("in_progress");
+    expect(existsSync(inProgress!.worktree)).toBe(true);
+    expect(daemon.queue.isWriteLocked(inProgress!.worktree)).toBe(true);
+    expect(daemon.queue.writeLockHolder(inProgress!.worktree)).toBe(draft.id);
   }, 60_000);
 });

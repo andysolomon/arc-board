@@ -36,6 +36,11 @@ function makeStory(): Story {
     criteria: ["register session", "attach project", "pull next story", "stream and complete"],
     draft: false,
     issue: "#8",
+    orchestration: {
+      status: "planned", route: "codex-implement", backend: "codex", mode: "implement",
+      rationale: "Test fixture is ready to dispatch.", complexity: "low",
+      plannedAt: "2026-07-10T00:00:00.000Z", storyDigest: "test",
+    },
   };
 }
 
@@ -157,5 +162,29 @@ describe("Fable pull-loop glue", () => {
     expect(reviewed?.pr).toBe("https://github.com/example/repo/pull/8");
     expect(daemon.store.getRunsForStory(story.id)).toHaveLength(1);
     expect(daemon.queue.isWriteLocked(assignment.story!.worktree)).toBe(false);
+  }, 60_000);
+
+  it("surfaces the awaiting-plan reason when no queued story is dispatchable", async () => {
+    const story = makeStory();
+    story.id = "story-fable-waiting";
+    story.wid = "W-000009";
+    story.branch = "feat/fable-waiting";
+    story.orchestration = { status: "planning" };
+    daemon.store.upsertStory(story);
+    daemon.store.enqueue(story.id);
+    const logs: string[] = [];
+
+    const assignment = await runFablePullLoop({
+      url: `http://127.0.0.1:${TEST_PORT}/mcp`,
+      path: fixtureDir,
+      repo: repoId,
+      branch: "main",
+      model: "claude-fable-test",
+      log: (message) => logs.push(message),
+    });
+
+    expect(assignment).toMatchObject({ story: null, reason: "awaiting-orchestration-plan" });
+    expect(assignment.prompt).toContain("awaiting orchestration plans");
+    expect(logs).toContain("queued stories are awaiting orchestration plans");
   }, 60_000);
 });

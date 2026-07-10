@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { AnnotateOutcome, Handoff, Project, RunRecord, Story } from "arc-contracts";
+import type { AnnotateOutcome, Handoff, Project, QueueNextResult, RunRecord, Story } from "arc-contracts";
 import { callTool, localBranch, localRepoId, withDaemonClient } from "./daemon-client.js";
 
 /**
@@ -27,6 +27,7 @@ export interface FablePullLoopOptions {
 export interface FableAssignment {
   project: Project | { id: string };
   story: Story | null;
+  reason?: QueueNextResult["reason"];
   prompt: string;
 }
 
@@ -48,13 +49,20 @@ export interface FableCompleteOptions {
   outcome?: AnnotateOutcome;
 }
 
-function buildPrompt(project: Project | { id: string }, story: Story | null, url: string): string {
+function buildPrompt(
+  project: Project | { id: string },
+  story: Story | null,
+  url: string,
+  reason?: QueueNextResult["reason"]
+): string {
   if (!story) {
     return [
       "# Fable pull loop",
       "",
       `Project: ${project.id}`,
-      "No queued story was available. Leave the daemon idle and try again after new filed stories enter Queued.",
+      reason === "awaiting-orchestration-plan"
+        ? "Queued stories are awaiting orchestration plans. Leave the daemon idle until a plan is solidified."
+        : "No queued story was available. Leave the daemon idle and try again after new filed stories enter Queued.",
     ].join("\n");
   }
 
@@ -119,7 +127,8 @@ export async function runFablePullLoop(opts: FablePullLoopOptions): Promise<Fabl
       log(`attached ${project.id}`);
     }
 
-    const story = await callTool<Story | null>(client, "queue.next", { projectId: project.id });
+    const dispatched = await callTool<QueueNextResult>(client, "queue.next", { projectId: project.id });
+    const story = dispatched.story;
     if (story) {
       log(`pulled ${story.wid} ${story.title}`);
       await callTool(client, "story.update", {
@@ -127,11 +136,18 @@ export async function runFablePullLoop(opts: FablePullLoopOptions): Promise<Fabl
         route: "fable",
         line: { kind: "out", text: `Fable pulled ${story.wid}; preparing model-driven implementation` },
       });
+    } else if (dispatched.reason === "awaiting-orchestration-plan") {
+      log("queued stories are awaiting orchestration plans");
     } else {
       log("no queued story available");
     }
 
-    return { project, story, prompt: buildPrompt(project, story, opts.url) };
+    return {
+      project,
+      story,
+      reason: dispatched.reason,
+      prompt: buildPrompt(project, story, opts.url, dispatched.reason),
+    };
   });
 }
 

@@ -60,6 +60,23 @@ export function OrchestratorView({ store }: OrchestratorViewProps) {
             <div className="sq-tile__label">Board pulls queue.next automatically</div>
           </div>
           <div className="sq-tile">
+            <div className="sq-toggle-row">
+              <span>Require orchestration plan</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={config.requireOrchestrationPlan}
+                className={`sq-toggle${config.requireOrchestrationPlan ? " sq-toggle--on" : ""}`}
+                onClick={() =>
+                  void store.updateConfig({ requireOrchestrationPlan: !config.requireOrchestrationPlan })
+                }
+              >
+                <span className="sq-toggle__knob" />
+              </button>
+            </div>
+            <div className="sq-tile__label">Only dispatch stories with a planned orchestration route</div>
+          </div>
+          <div className="sq-tile">
             <div className="sq-stepper">
               <button
                 type="button"

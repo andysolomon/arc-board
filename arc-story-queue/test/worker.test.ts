@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema, LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { Story } from "arc-contracts";
+import type { QueueNextResult, Story } from "arc-contracts";
 import { startDaemon, type DaemonHandle } from "../mcp-server/dist/server.js";
 import { runWorker } from "../mcp-server/dist/worker.js";
 
@@ -39,6 +39,11 @@ function makeStory(repo: string): Story {
     criteria: ["stream updates", "persist a run record", "release the write lock"],
     draft: false,
     issue: "#6",
+    orchestration: {
+      status: "planned", route: "codex-implement", backend: "codex", mode: "implement",
+      rationale: "Test fixture is ready to dispatch.", complexity: "low",
+      plannedAt: "2026-07-10T00:00:00.000Z", storyDigest: "test",
+    },
   };
 }
 
@@ -130,10 +135,10 @@ describe("deterministic worker", () => {
       { name: "queue.next", arguments: { projectId: project.id } },
       CallToolResultSchema
     );
-    const reserved = parseToolResult<Story>(next as ToolResult);
-    expect(reserved.column).toBe("in_progress");
-    expect(existsSync(reserved.worktree)).toBe(true);
-    expect(daemon.queue.isWriteLocked(reserved.worktree)).toBe(true);
+    const reserved = parseToolResult<QueueNextResult>(next as ToolResult).story;
+    expect(reserved?.column).toBe("in_progress");
+    expect(existsSync(reserved!.worktree)).toBe(true);
+    expect(daemon.queue.isWriteLocked(reserved!.worktree)).toBe(true);
 
     const result = await runWorker({
       url: `http://127.0.0.1:${TEST_PORT}/mcp`,
@@ -184,5 +189,26 @@ describe("deterministic worker", () => {
       encoding: "utf8",
     }).trim();
     expect(lastCommit).toBe("W-000006: deterministic worker run");
+  }, 60_000);
+
+  it("logs the awaiting-plan reason instead of generic queue unavailability", async () => {
+    const story = makeStory(repoId);
+    story.id = "story-worker-waiting";
+    story.wid = "W-000007";
+    story.branch = "feat/worker-waiting";
+    story.orchestration = { status: "planning" };
+    daemon.store.upsertStory(story);
+    daemon.store.enqueue(story.id);
+    const logs: string[] = [];
+
+    const result = await runWorker({
+      url: `http://127.0.0.1:${TEST_PORT}/mcp`,
+      path: fixtureDir,
+      repo: repoId,
+      log: (message) => logs.push(message),
+    });
+
+    expect(result.processed).toBe(0);
+    expect(logs).toContain("Queued stories are awaiting orchestration plans.");
   }, 60_000);
 });

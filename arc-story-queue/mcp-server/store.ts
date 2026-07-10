@@ -252,10 +252,17 @@ export class StoryStore {
       key: string;
       value: string;
     }>;
-    const cfg: AppConfig = { autoRun: false, maxParallel: this.defaultMaxParallel };
+    const cfg: AppConfig = {
+      autoRun: false,
+      maxParallel: this.defaultMaxParallel,
+      requireOrchestrationPlan: true,
+    };
     for (const row of rows) {
       if (row.key === "autoRun") cfg.autoRun = JSON.parse(row.value) as boolean;
       else if (row.key === "maxParallel") cfg.maxParallel = JSON.parse(row.value) as number;
+      else if (row.key === "requireOrchestrationPlan") {
+        cfg.requireOrchestrationPlan = JSON.parse(row.value) as boolean;
+      }
     }
     return cfg;
   }
@@ -274,6 +281,9 @@ export class StoryStore {
     );
     if (patch.autoRun !== undefined) stmt.run("autoRun", JSON.stringify(patch.autoRun));
     if (patch.maxParallel !== undefined) stmt.run("maxParallel", JSON.stringify(patch.maxParallel));
+    if (patch.requireOrchestrationPlan !== undefined) {
+      stmt.run("requireOrchestrationPlan", JSON.stringify(patch.requireOrchestrationPlan));
+    }
     return this.getConfig();
   }
 

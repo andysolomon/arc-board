@@ -1,4 +1,4 @@
-import type { AnnotateOutcome, Handoff, IntakeDraftProposal, RunRecord, Story } from "arc-contracts";
+import type { AnnotateOutcome, Handoff, IntakeDraftProposal, QueueNextResult, RunRecord, Story } from "arc-contracts";
 import { IntakeManager } from "./intake.js";
 import { QueueManager } from "./queue.js";
 import type { StoryLifecycleEvent } from "./sse.js";
@@ -35,9 +35,9 @@ export class StoryLifecycle {
     return this.intake;
   }
 
-  async dispatch(projectId: string): Promise<LifecycleResult<Story | null>> {
-    const story = await this.queue.next(projectId);
-    return result(story, story ? [storyEvent("started", story)] : []);
+  async dispatch(projectId: string): Promise<LifecycleResult<QueueNextResult>> {
+    const dispatched = await this.queue.next(projectId);
+    return result(dispatched, dispatched.story ? [storyEvent("started", dispatched.story)] : []);
   }
 
   async start(id: string): Promise<LifecycleResult<Story>> {

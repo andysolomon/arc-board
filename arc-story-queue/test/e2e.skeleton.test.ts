@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema, LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { Handoff, RunRecord, Story } from "arc-contracts";
+import type { Handoff, QueueNextResult, RunRecord, Story } from "arc-contracts";
 import { startDaemon, type DaemonHandle } from "../mcp-server/dist/server.js";
 
 const TEST_PORT = 7424;
@@ -36,6 +36,11 @@ function makeStory(repo: string, id = "story-e2e-1"): Story {
     criteria: ["worktree opens", "SSE streams updates"],
     draft: false,
     issue: "#1",
+    orchestration: {
+      status: "planned", route: "codex-implement", backend: "codex", mode: "implement",
+      rationale: "Test fixture is ready to dispatch.", complexity: "low",
+      plannedAt: "2026-07-10T00:00:00.000Z", storyDigest: "test",
+    },
   };
 }
 
@@ -124,7 +129,7 @@ describe("walking skeleton E2E", () => {
       { name: "queue.next", arguments: { projectId: project.id } },
       CallToolResultSchema
     );
-    const inProgress = parseToolResult<Story>(next);
+    const inProgress = parseToolResult<QueueNextResult>(next).story;
     expect(inProgress).not.toBeNull();
     expect(inProgress!.column).toBe("in_progress");
     expect(existsSync(inProgress!.worktree)).toBe(true);
