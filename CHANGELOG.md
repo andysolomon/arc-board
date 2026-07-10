@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/andysolomon/arc-board/compare/v1.23.1...v1.24.0) (2026-07-10)
+
+
+### Features
+
+* gate W-000042 queue dispatch on orchestration plans ([#119](https://github.com/andysolomon/arc-board/issues/119)) ([09d7132](https://github.com/andysolomon/arc-board/commit/09d7132c0d57b43951965e7dade0d6aac12d27f5)), closes [#101](https://github.com/andysolomon/arc-board/issues/101)
+
 ## [1.23.1](https://github.com/andysolomon/arc-board/compare/v1.23.0...v1.23.1) (2026-07-10)
 
 
