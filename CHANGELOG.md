@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/andysolomon/arc-board/compare/v1.17.0...v1.18.0) (2026-07-10)
+
+
+### Features
+
+* **W-000031:** gate parallel dispatch on GitHub label mutex groups ([#81](https://github.com/andysolomon/arc-board/issues/81)) ([5613ce1](https://github.com/andysolomon/arc-board/commit/5613ce13fdab393d4169ae8d9328874c66ff5d53)), closes [#79](https://github.com/andysolomon/arc-board/issues/79)
+
 # [1.17.0](https://github.com/andysolomon/arc-board/compare/v1.16.7...v1.17.0) (2026-07-10)
 
 
