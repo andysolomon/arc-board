@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/andysolomon/arc-board/compare/v1.24.0...v1.25.0) (2026-07-10)
+
+
+### Features
+
+* **W-000039,W-000040:** structured merge errors and PR readiness gating ([f3d34bc](https://github.com/andysolomon/arc-board/commit/f3d34bcc34fca320f63f8ad560503b59060cb6fa))
+
 # [1.24.0](https://github.com/andysolomon/arc-board/compare/v1.23.1...v1.24.0) (2026-07-10)
 
 
