@@ -115,8 +115,8 @@ describe("board views seam", () => {
 
   it("updateConfig persists to the daemon", async () => {
     await store.updateConfig({ maxParallel: 5, autoRun: true });
-    expect(store.getConfig()).toEqual({ autoRun: true, maxParallel: 5 });
-    expect(daemon.store.getConfig()).toEqual({ autoRun: true, maxParallel: 5 });
+    expect(store.getConfig()).toEqual({ autoRun: true, maxParallel: 5, requireOrchestrationPlan: true });
+    expect(daemon.store.getConfig()).toEqual({ autoRun: true, maxParallel: 5, requireOrchestrationPlan: true });
   });
 
   it("openStory hydrates detail with runs + handoff after complete", async () => {

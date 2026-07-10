@@ -54,6 +54,10 @@ export function AppShell({ store }: AppShellProps) {
               ? "Fable · no worker attached"
               : "Fable · idle";
   const queueLen = store.queueStories().length;
+  const queuedOrchestrationStatuses = store
+    .queueStories()
+    .map((story) => `${story.id}:${story.orchestration?.status ?? "unplanned"}`)
+    .join("|");
   const detail = store.getDetail();
   const autoPulling = useRef(false);
 
@@ -61,7 +65,7 @@ export function AppShell({ store }: AppShellProps) {
   // Capacity-guarded so it never busy-loops. The dependency array fires the effect
   // exactly when the inputs change (config, connection, in-progress count, queue depth)
   // rather than on every render.
-  const { autoRun, maxParallel } = state.config;
+  const { autoRun, maxParallel, requireOrchestrationPlan } = state.config;
   const attached = !!state.project || state.activeProjectId === "all";
 
   // Re-evaluate recent-worker liveness even if no fresh SSE arrives, so stale streams
@@ -81,7 +85,17 @@ export function AppShell({ store }: AppShellProps) {
     store.queueNext().finally(() => {
       autoPulling.current = false;
     });
-  }, [store, autoRun, maxParallel, connected, attached, runningCount, queueLen]);
+  }, [
+    store,
+    autoRun,
+    maxParallel,
+    requireOrchestrationPlan,
+    connected,
+    attached,
+    runningCount,
+    queueLen,
+    queuedOrchestrationStatuses,
+  ]);
 
   useEffect(() => {
     if (view === "activity") store.markNotificationsRead();

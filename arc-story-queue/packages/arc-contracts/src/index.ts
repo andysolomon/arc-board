@@ -336,7 +336,14 @@ export interface IntakeGenerateResult {
 export interface AppConfig {
   autoRun: boolean;
   maxParallel: number;
+  /** Require an approved orchestration plan before a queued story can be dispatched. */
+  requireOrchestrationPlan: boolean;
 }
+
+/** Result of asking the queue to reserve its next runnable story. */
+export type QueueNextResult =
+  | { story: Story; reason?: never }
+  | { story: null; reason?: "awaiting-orchestration-plan" };
 
 /** Full drawer hydration: the story plus its persisted runs + handoff. */
 export interface StoryDetail {

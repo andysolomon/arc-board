@@ -10,6 +10,7 @@ import {
   type IntakeKind,
   type KnownProject,
   type Project,
+  type QueueNextResult,
   type RunRecord,
   type Story,
   type StoryDetail,
@@ -756,8 +757,12 @@ export class BoardStore {
   async queueNext(): Promise<Story | null> {
     const project = this.state.project;
     if (!project) throw new Error("No project attached");
-    const story = await this.sync.call<Story | null>("queue.next", { projectId: project.id });
+    const dispatched = await this.sync.call<QueueNextResult>("queue.next", { projectId: project.id });
+    const story = dispatched.story;
     if (story) this.reduce((state) => upsertStoryInState(state, story));
+    else if (dispatched.reason === "awaiting-orchestration-plan") {
+      this.notify("info", "Queued stories are awaiting orchestration plan approval.");
+    }
     await this.loadQueue();
     return story;
   }

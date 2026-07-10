@@ -50,6 +50,16 @@ function makeStory(repo: string, id = "story-live-1"): Story {
     criteria: ["lines arrive in order"],
     draft: false,
     issue: "#42",
+    orchestration: {
+      status: "planned",
+      route: "codex-implement",
+      backend: "codex",
+      mode: "implement",
+      rationale: "Test fixture is ready to dispatch.",
+      complexity: "low",
+      plannedAt: "2026-07-10T00:00:00.000Z",
+      storyDigest: "test",
+    },
   };
 }
 

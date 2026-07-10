@@ -31,6 +31,16 @@ function makeStory(overrides: Partial<Story> = {}): Story {
     criteria: [],
     draft: false,
     issue: "#1",
+    orchestration: {
+      status: "planned",
+      route: "codex-implement",
+      backend: "codex",
+      mode: "implement",
+      rationale: "Test fixture is ready to dispatch.",
+      complexity: "low",
+      plannedAt: "2026-07-10T00:00:00.000Z",
+      storyDigest: "test",
+    },
     ...overrides,
   };
 }
@@ -103,6 +113,22 @@ afterEach(() => {
 });
 
 describe("StoryLifecycle", () => {
+  it("returns the orchestration-plan non-dispatch result without emitting started", async () => {
+    const { repo, worktreeRoot } = makeGitRepo();
+    const { store, registry, lifecycle } = makeLifecycle(worktreeRoot);
+    const session = registry.register({ repo: "test/repo", path: repo, branch: "main", model: "vitest", pid: 1 });
+    const project = registry.attach(session.id, worktreeRoot);
+    const story = makeStory({ orchestration: { status: "planning" } });
+    store.upsertStory(story);
+    store.enqueue(story.id);
+
+    expect(await lifecycle.dispatch(project.id)).toEqual({
+      value: { story: null, reason: "awaiting-orchestration-plan" },
+      events: [],
+    });
+    expect(store.getStory(story.id)).toMatchObject({ column: "queued", worktree: "" });
+  });
+
   it("dispatches and completes through one interface, returning event facts and preserving lock behavior", async () => {
     const { repo, worktreeRoot } = makeGitRepo();
     const { store, registry, queue, lifecycle } = makeLifecycle(worktreeRoot);
@@ -118,10 +144,10 @@ describe("StoryLifecycle", () => {
     expect(dispatched.events).toEqual([
       { kind: "started", id: story.id, wid: story.wid, title: story.title, column: "in_progress" },
     ]);
-    expect(dispatched.value?.column).toBe("in_progress");
-    expect(dispatched.value?.worktree).toBeTruthy();
-    expect(existsSync(dispatched.value!.worktree)).toBe(true);
-    expect(queue.isWriteLocked(dispatched.value!.worktree)).toBe(true);
+    expect(dispatched.value.story?.column).toBe("in_progress");
+    expect(dispatched.value.story?.worktree).toBeTruthy();
+    expect(existsSync(dispatched.value.story!.worktree)).toBe(true);
+    expect(queue.isWriteLocked(dispatched.value.story!.worktree)).toBe(true);
 
     const completed = await lifecycle.complete({
       id: story.id,
@@ -137,7 +163,7 @@ describe("StoryLifecycle", () => {
     ]);
     expect(store.getStory(story.id)?.column).toBe("review");
     expect(store.getRunsForStory(story.id)).toHaveLength(1);
-    expect(queue.isWriteLocked(dispatched.value!.worktree)).toBe(false);
+    expect(queue.isWriteLocked(dispatched.value.story!.worktree)).toBe(false);
   });
 
   it("merges reviewed local work and cleans the worktree through the lifecycle interface", async () => {
@@ -166,7 +192,7 @@ describe("StoryLifecycle", () => {
     ]);
     expect(merged.value.column).toBe("done");
     expect(merged.value.worktree).toBe("");
-    expect(existsSync(dispatched.value!.worktree)).toBe(false);
+    expect(existsSync(dispatched.value.story!.worktree)).toBe(false);
   });
 
   it("abandons in-progress work, cleans the worktree, and returns an abandoned event fact", async () => {
@@ -187,8 +213,8 @@ describe("StoryLifecycle", () => {
     ]);
     expect(abandoned.value.column).toBe("backlog");
     expect(abandoned.value.worktree).toBe("");
-    expect(existsSync(dispatched.value!.worktree)).toBe(false);
-    expect(queue.isWriteLocked(dispatched.value!.worktree)).toBe(false);
+    expect(existsSync(dispatched.value.story!.worktree)).toBe(false);
+    expect(queue.isWriteLocked(dispatched.value.story!.worktree)).toBe(false);
   });
 
   it("starts a reserved in-progress story with worktree and returns a started event without mutating the story", async () => {
@@ -201,7 +227,7 @@ describe("StoryLifecycle", () => {
     store.upsertStory(story);
     store.enqueue(story.id);
     const dispatched = await lifecycle.dispatch(project.id);
-    const worktree = dispatched.value!.worktree;
+    const worktree = dispatched.value.story!.worktree;
 
     const started = await lifecycle.start(story.id);
 
@@ -277,7 +303,7 @@ describe("StoryLifecycle", () => {
 
     const dispatched = await lifecycle.dispatch(project.id);
 
-    expect(dispatched.value?.id).toBe(story.id);
+    expect(dispatched.value.story?.id).toBe(story.id);
     expect(store.getHandoff(story.id)).toBeNull();
     expect(queue.detail(story.id).handoff).toBeNull();
   });

@@ -9,6 +9,7 @@ import {
   type KnownProject,
   type Plan,
   type Project,
+  type QueueNextResult,
   type RunRecord,
   type Story,
   type StoryDetail,
@@ -124,23 +125,33 @@ export class QueueManager {
     this.locks.delete(worktree);
   }
 
-  async next(projectId: string): Promise<Story | null> {
+  async next(projectId: string): Promise<QueueNextResult> {
     const maxParallel = this.store.getConfiguredMaxParallel() ?? this.cfg.maxParallel;
     const inProgress = this.running(projectId);
-    if (inProgress.length >= maxParallel) return null;
+    if (inProgress.length >= maxParallel) return { story: null };
 
     const repo = this.repoOf(projectId);
     const repoPath = this.registry.repoPathOf(projectId);
     const order = this.store.queueIds();
+    const requireOrchestrationPlan = this.store.getConfig().requireOrchestrationPlan;
 
-    const id = order.find((sid) => {
+    const candidates = order.flatMap((sid) => {
       const s = this.store.getStory(sid);
-      if (!s || s.draft || s.column !== "queued" || s.repo !== repo) return false;
-      return isDispatchEligible(s, inProgress, maxParallel);
+      return !s || s.draft || s.column !== "queued" || s.repo !== repo ? [] : [s];
     });
-    if (!id) return null;
+    const story = candidates.find(
+      (candidate) =>
+        (!requireOrchestrationPlan || candidate.orchestration?.status === "planned") &&
+        isDispatchEligible(candidate, inProgress, maxParallel)
+    );
+    if (!story) {
+      return candidates.length > 0 &&
+        candidates.every((candidate) => candidate.orchestration?.status !== "planned") &&
+        requireOrchestrationPlan
+        ? { story: null, reason: "awaiting-orchestration-plan" }
+        : { story: null };
+    }
 
-    const story = this.store.getStory(id)!;
     const wtDir = resolve(this.cfg.worktreeRoot, slugify(story.branch || story.id));
     mkdirSync(this.cfg.worktreeRoot, { recursive: true });
 
@@ -153,14 +164,14 @@ export class QueueManager {
     story.worktree = wtDir;
     story.column = "in_progress";
     this.store.upsertStory(story);
-    this.store.dequeue(id);
+    this.store.dequeue(story.id);
 
-    if (!this.acquireWrite(wtDir, id)) {
+    if (!this.acquireWrite(wtDir, story.id)) {
       throw new Error(`Write lock already held for worktree ${wtDir}`);
     }
 
-    this.clearHandoff(id);
-    return story;
+    this.clearHandoff(story.id);
+    return { story };
   }
 
   clearHandoff(id: string): void {

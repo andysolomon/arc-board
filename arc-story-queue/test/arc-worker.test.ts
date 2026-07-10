@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema, LoggingMessageNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { Story } from "arc-contracts";
+import type { QueueNextResult, Story } from "arc-contracts";
 import { claudeArgs, claudeEventLine, claudeWorkerEnv, runArcWorker } from "../mcp-server/dist/arc-worker.js";
 import { startDaemon, type DaemonHandle } from "../mcp-server/dist/server.js";
 
@@ -40,6 +40,11 @@ function makeStory(): Story {
     criteria: ["react to started events", "stream progress", "move to review"],
     draft: false,
     issue: "#37",
+    orchestration: {
+      status: "planned", route: "codex-implement", backend: "codex", mode: "implement",
+      rationale: "Test fixture is ready to dispatch.", complexity: "low",
+      plannedAt: "2026-07-10T00:00:00.000Z", storyDigest: "test",
+    },
   };
 }
 
@@ -149,8 +154,8 @@ describe("arc-worker headless event loop", () => {
       { name: "queue.next", arguments: { projectId: project.id } },
       CallToolResultSchema
     );
-    const reserved = parseToolResult<Story>(next as ToolResult);
-    expect(reserved.column).toBe("in_progress");
+    const reserved = parseToolResult<QueueNextResult>(next as ToolResult).story;
+    expect(reserved?.column).toBe("in_progress");
 
     const result = await worker;
     expect(result.processed).toBe(1);

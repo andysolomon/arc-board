@@ -159,7 +159,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
     "queue.next",
     {
       title: "Queue next",
-      description: "Pull the top queued story for this project, open its worktree, mark in_progress.",
+      description: "Pull the next dispatchable queued story, open its worktree, mark in_progress.",
       inputSchema: { projectId: z.string() },
     },
     async ({ projectId }) => lifecycleJsonResult(sse, await lifecycle.dispatch(projectId))
@@ -562,7 +562,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
     "config.get",
     {
       title: "Config get",
-      description: "Read the persisted daemon config (autoRun, maxParallel).",
+      description: "Read the persisted daemon config (autoRun, maxParallel, requireOrchestrationPlan).",
     },
     async () => jsonResult(queue.getConfig())
   );
@@ -575,6 +575,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       inputSchema: {
         autoRun: z.boolean().optional(),
         maxParallel: z.number().int().positive().optional(),
+        requireOrchestrationPlan: z.boolean().optional(),
       },
     },
     async (args) => jsonResult(queue.setConfig(args))
