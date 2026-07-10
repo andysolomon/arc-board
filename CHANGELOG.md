@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/andysolomon/arc-board/compare/v1.19.0...v1.20.0) (2026-07-10)
+
+
+### Features
+
+* **W-000029:** always open a GitHub PR when sending a story to review ([#84](https://github.com/andysolomon/arc-board/issues/84)) ([8d8ec0d](https://github.com/andysolomon/arc-board/commit/8d8ec0dbc8a1f85dc0106905ef65c208f44f3edb)), closes [#77](https://github.com/andysolomon/arc-board/issues/77)
+
 # [1.19.0](https://github.com/andysolomon/arc-board/compare/v1.18.0...v1.19.0) (2026-07-10)
 
 
