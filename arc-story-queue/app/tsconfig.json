@@ -11,7 +11,12 @@
     "isolatedModules": true,
     "useDefineForClassFields": true,
     "resolveJsonModule": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // Resolve arc-contracts from source so the app never typechecks against a
+    // stale dist build (W-000033). Node consumers (mcp-server) still use dist.
+    "paths": {
+      "arc-contracts": ["../packages/arc-contracts/src/index.ts"]
+    }
   },
   "include": ["src"]
 }

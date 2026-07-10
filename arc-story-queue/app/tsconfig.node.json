@@ -8,7 +8,12 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    // Keep test typechecking on arc-contracts source, matching tsconfig.json
+    // and the vite/vitest aliases (W-000033).
+    "paths": {
+      "arc-contracts": ["../packages/arc-contracts/src/index.ts"]
+    }
   },
   "include": ["vite.config.ts", "test/**/*"]
 }
