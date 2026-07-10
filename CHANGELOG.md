@@ -1,3 +1,10 @@
+## [1.21.3](https://github.com/andysolomon/arc-board/compare/v1.21.2...v1.21.3) (2026-07-10)
+
+
+### Bug Fixes
+
+* **W-000034:** surface daemon tool-set skew as restart guidance instead of raw MCP -32602 ([#91](https://github.com/andysolomon/arc-board/issues/91)) ([b64ea22](https://github.com/andysolomon/arc-board/commit/b64ea22c31cd54103740bd7cd7dc7b964aed32d0)), closes [#83](https://github.com/andysolomon/arc-board/issues/83) [#90](https://github.com/andysolomon/arc-board/issues/90)
+
 ## [1.21.2](https://github.com/andysolomon/arc-board/compare/v1.21.1...v1.21.2) (2026-07-10)
 
 
