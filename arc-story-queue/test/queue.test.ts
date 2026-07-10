@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueueManager } from "../mcp-server/dist/queue.js";
 import { SessionRegistry } from "../mcp-server/dist/registry.js";
 import { SseHub } from "../mcp-server/dist/sse.js";
@@ -339,6 +339,7 @@ describe("QueueManager parallelism law", () => {
     expect(ghCalls).toEqual([["pr", "merge", "12", "--merge", "--delete-branch", "--repo", "test/repo"]]);
     expect(merged.column).toBe("done");
     expect(merged.prState).toBe("merged");
+    expect(merged.doneAt).toBeTypeOf("number");
     expect(merged.worktree).toBe("");
     expect(existsSync(worktree)).toBe(false);
     expect(queue.isWriteLocked(worktree)).toBe(false);
@@ -370,6 +371,7 @@ describe("QueueManager parallelism law", () => {
     expect(ghCalls).toEqual([["pr", "view", "12", "--json", "state,mergedAt", "--repo", "test/repo"]]);
     expect(updated.column).toBe("done");
     expect(updated.prState).toBe("merged");
+    expect(updated.doneAt).toBeTypeOf("number");
     expect(updated.worktree).toBe("");
     expect(existsSync(worktree)).toBe(false);
   });
@@ -681,6 +683,93 @@ describe("QueueManager parallelism law", () => {
 
     const result = await queue.next(project.id);
     expect(result).toBeNull();
+  });
+});
+
+describe("reconcileDoneRetention", () => {
+  const retentionMs = 30 * 60_000;
+
+  it("purges done stories past retention and emits purged event; fresh done stories are untouched", async () => {
+    const store = new StoryStore(":memory:");
+    const registry = new SessionRegistry();
+    const sse = new SseHub();
+    const emitSpy = vi.spyOn(sse, "emitEvent");
+    const queue = new QueueManager({ worktreeRoot: "/tmp/wt", maxParallel: 2 }, { store, registry, sse });
+
+    const stale = makeStory({
+      id: "done-stale",
+      column: "done",
+      prState: "merged",
+      doneAt: Date.now() - retentionMs - 1,
+    });
+    const fresh = makeStory({
+      id: "done-fresh",
+      column: "done",
+      prState: "merged",
+      doneAt: Date.now(),
+    });
+    store.upsertStory(stale);
+    store.upsertStory(fresh);
+
+    const result = await queue.reconcileDoneRetention(retentionMs);
+
+    expect(result).toEqual({ checked: 2, stamped: [], purged: ["done-stale"] });
+    expect(store.getStory("done-stale")).toBeNull();
+    expect(store.getStory("done-fresh")).not.toBeNull();
+    expect(emitSpy).toHaveBeenCalledWith({
+      kind: "purged",
+      id: "done-stale",
+      wid: stale.wid,
+      title: stale.title,
+    });
+  });
+
+  it("stamps legacy done stories on first sweep without deleting; purges on a later sweep", async () => {
+    const store = new StoryStore(":memory:");
+    const registry = new SessionRegistry();
+    const sse = new SseHub();
+    const queue = new QueueManager({ worktreeRoot: "/tmp/wt", maxParallel: 2 }, { store, registry, sse });
+
+    const legacy = makeStory({ id: "done-legacy", column: "done", prState: "merged" });
+    store.upsertStory(legacy);
+
+    const first = await queue.reconcileDoneRetention(retentionMs);
+
+    expect(first).toEqual({ checked: 1, stamped: ["done-legacy"], purged: [] });
+    const stamped = store.getStory("done-legacy")!;
+    expect(stamped.doneAt).toBeTypeOf("number");
+
+    stamped.doneAt = Date.now() - retentionMs - 1;
+    store.upsertStory(stamped);
+
+    const second = await queue.reconcileDoneRetention(retentionMs);
+
+    expect(second).toEqual({ checked: 1, stamped: [], purged: ["done-legacy"] });
+    expect(store.getStory("done-legacy")).toBeNull();
+  });
+
+  it("never stamps or deletes stories in other columns", async () => {
+    const store = new StoryStore(":memory:");
+    const registry = new SessionRegistry();
+    const sse = new SseHub();
+    const queue = new QueueManager({ worktreeRoot: "/tmp/wt", maxParallel: 2 }, { store, registry, sse });
+
+    const inProgress = makeStory({ id: "s-ip", column: "in_progress", worktree: "/wt/s-ip" });
+    const review = makeStory({ id: "s-review", column: "review", pr: "https://github.com/test/repo/pull/1" });
+    const queued = makeStory({ id: "s-queued", column: "queued" });
+    store.upsertStory(inProgress);
+    store.upsertStory(review);
+    store.upsertStory(queued);
+
+    const result = await queue.reconcileDoneRetention(retentionMs);
+
+    expect(result).toEqual({ checked: 0, stamped: [], purged: [] });
+    expect(store.getStory(inProgress.id)?.doneAt).toBeUndefined();
+    expect(store.getStory(review.id)?.doneAt).toBeUndefined();
+    expect(store.getStory(queued.id)?.doneAt).toBeUndefined();
+    expect(store.getStory(inProgress.id)?.column).toBe("in_progress");
+    expect(store.getStory(review.id)?.column).toBe("review");
+    expect(store.getStory(queued.id)?.column).toBe("queued");
   });
 });
 

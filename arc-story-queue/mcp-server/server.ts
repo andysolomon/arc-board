@@ -26,6 +26,7 @@ export interface DaemonOptions {
   worktreeRoot?: string;
   maxParallel?: number;
   prReconcileIntervalMs?: number;
+  doneRetentionMs?: number;
   pingIntervalMs?: number;
   fsRoot?: string;
 }
@@ -709,10 +710,14 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
   }
 
   const prReconcileIntervalMs = opts.prReconcileIntervalMs ?? 60_000;
+  const doneRetentionMs = opts.doneRetentionMs ?? 30 * 60_000;
   const prReconcileTimer = prReconcileIntervalMs > 0
     ? setInterval(() => {
         void ctx.queue.reconcileReviewPrs();
         void ctx.queue.reconcileInProgressIssues();
+        if (doneRetentionMs > 0) {
+          void ctx.queue.reconcileDoneRetention(doneRetentionMs);
+        }
       }, prReconcileIntervalMs)
     : undefined;
   if (
