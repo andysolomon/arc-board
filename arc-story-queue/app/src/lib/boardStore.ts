@@ -794,6 +794,20 @@ export class BoardStore {
     });
   }
 
+  /**
+   * Re-trigger orchestration analysis for a queued story (Replan / Retry
+   * planning). Uses the existing lifecycle triggers only: unqueue resets the
+   * plan to `unplanned`, re-enqueue emits the `queued` event the background
+   * planner listens for, and the original queue position is restored.
+   */
+  async replanStory(id: string): Promise<Story> {
+    const order = [...this.state.queueOrder];
+    await this.unqueueStory(id);
+    const story = await this.enqueueStory(id);
+    if (order.includes(id)) await this.reorderQueueTo(order);
+    return story;
+  }
+
   /** Pull a story out of the queue back to backlog (drag Queued → Backlog). */
   async unqueueStory(id: string): Promise<Story> {
     const story = await this.sync.call<Story>("story.unqueue", { id });
