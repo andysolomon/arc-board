@@ -274,6 +274,16 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "story.start",
+    {
+      title: "Start story work",
+      description: "Dispatch worker execution for a reserved in-progress story that already has a worktree.",
+      inputSchema: { id: z.string() },
+    },
+    async ({ id }) => lifecycleJsonResult(sse, await lifecycle.start(id))
+  );
+
+  server.registerTool(
     "story.abandon",
     {
       title: "Abandon story worktree",

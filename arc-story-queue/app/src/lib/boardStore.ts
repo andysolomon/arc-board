@@ -696,6 +696,12 @@ export class BoardStore {
     return updated;
   }
 
+  async startStory(id: string): Promise<Story> {
+    const story = await this.sync.call<Story>("story.start", { id });
+    this.updateStoryAndDetail(story);
+    return story;
+  }
+
   async abandonStory(id: string): Promise<Story> {
     const story = await this.sync.call<Story>("story.abandon", { id });
     this.updateStoryAndDetail(story);
