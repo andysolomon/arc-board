@@ -998,6 +998,9 @@ body {
 .sq-block__label--row { display: flex; align-items: center; gap: var(--sq-3); }
 .sq-block__meta { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sq-2); text-transform: none; letter-spacing: normal; }
 .sq-action-row { display: flex; gap: var(--sq-2); }
+.sq-async-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sq-2);
+}
 .sq-action-row__button { flex: 1; padding: 10px 12px; display: inline-flex; align-items: center; justify-content: center; gap: var(--sq-2); }
 .sq-merge-phase {
   display: inline-flex; align-items: center; gap: var(--sq-2);

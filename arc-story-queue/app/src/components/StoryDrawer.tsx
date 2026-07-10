@@ -17,8 +17,10 @@ import {
 import { useDialog } from "../lib/useDialog";
 import { buildContractRows } from "../lib/delegationContract";
 import { parseBoardActionError } from "../lib/boardActionError";
+import { AsyncButton } from "./AsyncButton";
 import { MergeBlockedCallout } from "./MergeBlockedCallout";
 import { Markdown } from "./Markdown";
+import { useAsyncAction } from "../lib/useAsyncAction";
 
 interface StoryDrawerProps {
   store: BoardStore;
@@ -392,25 +394,6 @@ function WorkerLaneTerminal({ lane }: { lane: WorkerLane }) {
   );
 }
 
-function useStoryAction() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function run(fn: () => Promise<unknown>) {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return { busy, error, run };
-}
-
 function RefineActions({ store, story }: { store: BoardStore; story: Story }) {
   const [refining, setRefining] = useState<RefineAction | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -500,7 +483,7 @@ function useMergePhase(busy: boolean) {
 }
 
 function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
-  const { busy, error, run } = useStoryAction();
+  const { busy, error, run } = useAsyncAction();
   const phaseLabel = useMergePhase(busy);
   const structuredError = error ? parseBoardActionError(error) : null;
 
@@ -511,15 +494,14 @@ function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
   return (
     <Section label="Review decision">
       <div className="sq-action-row">
-        <button
-          type="button"
+        <AsyncButton
           className="btn btn--success sq-action-row__button"
-          disabled={busy}
-          onClick={() => void run(() => store.mergeStory(story.id))}
+          busy={busy}
+          loadingLabel={buttonLabel}
+          onClick={() => run(() => store.mergeStory(story.id))}
         >
-          {busy && <span className="sq-merge-phase__spinner" aria-hidden />}
-          {buttonLabel}
-        </button>
+          ✓ Merge PR & clean worktree
+        </AsyncButton>
       </div>
       {busy && phaseLabel && (
         <p className="sq-merge-phase" aria-live="polite">
@@ -541,7 +523,7 @@ function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
 }
 
 function StartActions({ store, story }: { store: BoardStore; story: Story }) {
-  const { busy, error, run } = useStoryAction();
+  const { busy, error, run } = useAsyncAction();
   const { maxParallel } = store.getConfig();
   const slotsBusy = store.liveWorkerCount() >= maxParallel;
   return (
@@ -552,14 +534,13 @@ function StartActions({ store, story }: { store: BoardStore; story: Story }) {
       {slotsBusy ? (
         <p className="sq-drawer__desc">All {maxParallel} worker slots busy</p>
       ) : (
-        <button
-          type="button"
+        <AsyncButton
           className="btn btn--primary"
-          disabled={busy}
-          onClick={() => void run(() => store.startStory(story.id))}
+          busy={busy}
+          onClick={() => run(() => store.startStory(story.id))}
         >
           Start work
-        </button>
+        </AsyncButton>
       )}
       {error && <div className="connect-bar__error">{error}</div>}
     </Section>
@@ -567,20 +548,19 @@ function StartActions({ store, story }: { store: BoardStore; story: Story }) {
 }
 
 function AbandonActions({ store, story }: { store: BoardStore; story: Story }) {
-  const { busy, error, run } = useStoryAction();
+  const { busy, error, run } = useAsyncAction();
   return (
     <Section label="Worktree cleanup">
       <p className="sq-drawer__desc">
         Abandon this run to move the story back to Backlog and reclaim its worktree slot.
       </p>
-      <button
-        type="button"
+      <AsyncButton
         className="btn btn--secondary"
-        disabled={busy}
-        onClick={() => void run(() => store.abandonStory(story.id))}
+        busy={busy}
+        onClick={() => run(() => store.abandonStory(story.id))}
       >
         Abandon &amp; clean worktree
-      </button>
+      </AsyncButton>
       {error && <div className="connect-bar__error">{error}</div>}
     </Section>
   );
