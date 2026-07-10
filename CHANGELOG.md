@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/andysolomon/arc-board/compare/v1.20.0...v1.21.0) (2026-07-10)
+
+
+### Features
+
+* **W-000028:** evict closed-PR stories from Review to Backlog ([#85](https://github.com/andysolomon/arc-board/issues/85)) ([8fee3e2](https://github.com/andysolomon/arc-board/commit/8fee3e2d803f5161e6e3df19955fa6e3f827ecb8)), closes [#76](https://github.com/andysolomon/arc-board/issues/76)
+
 # [1.20.0](https://github.com/andysolomon/arc-board/compare/v1.19.0...v1.20.0) (2026-07-10)
 
 
