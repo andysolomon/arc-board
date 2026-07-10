@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/andysolomon/arc-board/compare/v1.22.0...v1.23.0) (2026-07-10)
+
+
+### Features
+
+* add W-000041 orchestration plan contract ([#107](https://github.com/andysolomon/arc-board/issues/107)) ([a7e829f](https://github.com/andysolomon/arc-board/commit/a7e829fe14c5f5ce6f7a2f51a2f9773b4a8b579f)), closes [#100](https://github.com/andysolomon/arc-board/issues/100)
+
 # [1.22.0](https://github.com/andysolomon/arc-board/compare/v1.21.5...v1.22.0) (2026-07-10)
 
 
