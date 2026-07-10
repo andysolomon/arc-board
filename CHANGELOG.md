@@ -1,3 +1,10 @@
+## [1.21.2](https://github.com/andysolomon/arc-board/compare/v1.21.1...v1.21.2) (2026-07-10)
+
+
+### Bug Fixes
+
+* **W-000033:** resolve arc-contracts from source in app workspace ([#89](https://github.com/andysolomon/arc-board/issues/89)) ([b5bc61a](https://github.com/andysolomon/arc-board/commit/b5bc61a8371b381f84864bb873e3ff870ced2c02)), closes [#81](https://github.com/andysolomon/arc-board/issues/81) [#88](https://github.com/andysolomon/arc-board/issues/88)
+
 ## [1.21.1](https://github.com/andysolomon/arc-board/compare/v1.21.0...v1.21.1) (2026-07-10)
 
 
