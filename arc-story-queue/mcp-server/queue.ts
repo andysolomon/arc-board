@@ -553,17 +553,65 @@ export class QueueManager {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private async waitForMergeReadiness(story: Story): Promise<MergeReadiness> {
+  private isMergeGateFailure(readiness: MergeReadiness, message = ""): boolean {
+    const lower = message.toLowerCase();
+    if (/merge gate/i.test(lower)) return true;
+    return readiness.failingChecks.some((name) => /merge gate/i.test(name));
+  }
+
+  private fixPrTitleForMergeGate(story: Story): void {
+    const pr = story.pr?.trim();
+    if (!pr) throw new Error(`Story ${story.id} has no PR to edit`);
+    const selector = this.prSelector(pr);
+    const repoArgs = this.ghRepoArgs(story);
+    this.runGhOrThrow(
+      ["pr", "edit", selector, "--title", conventionalTitle(story), ...repoArgs],
+      "gh pr edit --title failed"
+    );
+  }
+
+  /**
+   * When Merge Gate fails for a non-conventional title, fix the PR title once and
+   * re-poll readiness. Any other failing check, or a second Merge Gate failure,
+   * surfaces a structured BoardActionError without further automatic retries.
+   */
+  private resolveFailingChecksForMerge(
+    story: Story,
+    readiness: MergeReadiness,
+    titleFixAttempted: { value: boolean }
+  ): MergeReadiness {
+    if (!readiness.failingChecks.length) return readiness;
+
+    if (titleFixAttempted.value || !this.isMergeGateFailure(readiness)) {
+      throwMergeError(
+        boardActionErrorFromMergeFailure("PR merge blocked by failing checks", readiness)
+      );
+    }
+
+    titleFixAttempted.value = true;
+    this.fixPrTitleForMergeGate(story);
+
+    const retried = this.viewPrMergeReadiness(story);
+    if (retried.failingChecks.length) {
+      throwMergeError(
+        boardActionErrorFromMergeFailure("PR merge blocked by failing checks", retried)
+      );
+    }
+    return retried;
+  }
+
+  private async waitForMergeReadiness(
+    story: Story,
+    titleFixAttempted: { value: boolean }
+  ): Promise<MergeReadiness> {
     const intervalMs = this.cfg.mergeReadinessPollMs ?? 3_000;
     const maxWaitMs = this.cfg.mergeReadinessMaxWaitMs ?? 120_000;
     const deadline = Date.now() + maxWaitMs;
 
     while (Date.now() < deadline) {
-      const readiness = this.viewPrMergeReadiness(story);
+      let readiness = this.viewPrMergeReadiness(story);
       if (readiness.failingChecks.length) {
-        throwMergeError(
-          boardActionErrorFromMergeFailure("PR merge blocked by failing checks", readiness)
-        );
+        readiness = this.resolveFailingChecksForMerge(story, readiness, titleFixAttempted);
       }
       if (readiness.mergeStateStatus === "CLEAN") {
         return readiness;
@@ -571,11 +619,9 @@ export class QueueManager {
       await this.sleep(intervalMs);
     }
 
-    const readiness = this.viewPrMergeReadiness(story);
+    let readiness = this.viewPrMergeReadiness(story);
     if (readiness.failingChecks.length) {
-      throwMergeError(
-        boardActionErrorFromMergeFailure("PR merge blocked by failing checks", readiness)
-      );
+      readiness = this.resolveFailingChecksForMerge(story, readiness, titleFixAttempted);
     }
     throwMergeError(
       boardActionErrorFromMergeFailure(
@@ -728,20 +774,17 @@ export class QueueManager {
 
     const selector = this.prSelector(pr);
     const repoArgs = this.ghRepoArgs(story);
+    const titleFixAttempted = { value: false };
 
     let readiness = this.viewPrMergeReadiness(story);
-    if (readiness.failingChecks.length) {
-      throwMergeError(
-        boardActionErrorFromMergeFailure("PR merge blocked by failing checks", readiness)
-      );
-    }
+    readiness = this.resolveFailingChecksForMerge(story, readiness, titleFixAttempted);
 
     const skipUpdateBranch =
       readiness.mergeStateStatus === "CLEAN" && readiness.pendingChecks.length === 0;
 
     if (!skipUpdateBranch) {
       this.runGhOrThrow(["pr", "update-branch", selector, ...repoArgs], "gh pr update-branch failed");
-      readiness = await this.waitForMergeReadiness(story);
+      readiness = await this.waitForMergeReadiness(story, titleFixAttempted);
     }
 
     if (readiness.mergeStateStatus !== "CLEAN") {
