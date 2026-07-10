@@ -31,10 +31,18 @@ function readinessDetail(readiness: MergeReadiness): string {
   return parts.join("; ");
 }
 
+function isCheckExpectedMessage(message: string): boolean {
+  return /\bis expected\b/i.test(message);
+}
+
+function isCheckFailingMessage(message: string): boolean {
+  return /\bis failing\b/i.test(message) || /\bfailing check/i.test(message);
+}
+
 function hasMergeGateFailure(readiness?: MergeReadiness, message = ""): boolean {
+  if (readiness?.failingChecks.some((name) => /merge gate/i.test(name))) return true;
   const lower = message.toLowerCase();
-  if (/merge gate/i.test(lower)) return true;
-  return !!readiness?.failingChecks.some((name) => /merge gate/i.test(name));
+  return /merge gate/i.test(lower) && isCheckFailingMessage(lower);
 }
 
 function mergeGateActions(): string[] {
@@ -140,10 +148,15 @@ export function boardActionErrorFromMergeFailure(
     };
   }
 
+  if (isCheckExpectedMessage(raw)) {
+    const detail = readiness ? readinessDetail(readiness) || raw : raw;
+    return checksPendingError(detail, raw);
+  }
+
   if (
     lower.includes("required status check") ||
-    lower.includes("failing check") ||
-    /merge gate/i.test(lower)
+    isCheckFailingMessage(lower) ||
+    (/merge gate/i.test(lower) && !isCheckExpectedMessage(raw))
   ) {
     return checksFailedError(raw, readiness, raw);
   }
