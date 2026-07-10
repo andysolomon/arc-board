@@ -236,4 +236,25 @@ describe("board live seam", () => {
       expect(detail?.runs.map((run) => run.id)).toContain("run-live-detail");
     });
   }, 60_000);
+
+  it("starts a reserved in-progress story without mutating column or worktree", async () => {
+    const repoId = "test/board-live";
+    const story = makeStory(repoId, "story-live-start");
+    daemon.store.upsertStory(story);
+    daemon.store.enqueue(story.id);
+    store.trackStory(story.id);
+    await store.refreshStory(story.id);
+
+    const next = await store.queueNext();
+    expect(next).not.toBeNull();
+    const worktree = next!.worktree;
+    expect(next!.column).toBe("in_progress");
+
+    const started = await store.startStory(story.id);
+    expect(started.column).toBe("in_progress");
+    expect(started.worktree).toBe(worktree);
+    expect(existsSync(worktree)).toBe(true);
+    expect(daemon.store.getStory(story.id)?.column).toBe("in_progress");
+    expect(daemon.store.getStory(story.id)?.worktree).toBe(worktree);
+  }, 60_000);
 });

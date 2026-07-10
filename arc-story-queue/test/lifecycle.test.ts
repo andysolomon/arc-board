@@ -179,4 +179,54 @@ describe("StoryLifecycle", () => {
     expect(existsSync(dispatched.value!.worktree)).toBe(false);
     expect(queue.isWriteLocked(dispatched.value!.worktree)).toBe(false);
   });
+
+  it("starts a reserved in-progress story with worktree and returns a started event without mutating the story", async () => {
+    const { repo, worktreeRoot } = makeGitRepo();
+    const { store, registry, queue, lifecycle } = makeLifecycle(worktreeRoot);
+
+    const session = registry.register({ repo: "test/repo", path: repo, branch: "main", model: "vitest", pid: 1 });
+    const project = registry.attach(session.id, worktreeRoot);
+    const story = makeStory();
+    store.upsertStory(story);
+    store.enqueue(story.id);
+    const dispatched = await lifecycle.dispatch(project.id);
+    const worktree = dispatched.value!.worktree;
+
+    const started = await lifecycle.start(story.id);
+
+    expect(started.events).toEqual([
+      { kind: "started", id: story.id, wid: story.wid, title: story.title, column: "in_progress" },
+    ]);
+    expect(started.value.column).toBe("in_progress");
+    expect(started.value.worktree).toBe(worktree);
+    expect(store.getStory(story.id)?.column).toBe("in_progress");
+    expect(store.getStory(story.id)?.worktree).toBe(worktree);
+    expect(existsSync(worktree)).toBe(true);
+    expect(queue.isWriteLocked(worktree)).toBe(true);
+  });
+
+  it("rejects start for stories not in in_progress", async () => {
+    const { worktreeRoot } = makeGitRepo();
+    const { store, lifecycle } = makeLifecycle(worktreeRoot);
+    const story = makeStory({ column: "queued" });
+    store.upsertStory(story);
+
+    await expect(lifecycle.start(story.id)).rejects.toThrow("Only in-progress stories can be started");
+  });
+
+  it("rejects start for in-progress stories without a worktree", async () => {
+    const { worktreeRoot } = makeGitRepo();
+    const { store, lifecycle } = makeLifecycle(worktreeRoot);
+    const story = makeStory({ column: "in_progress", worktree: "" });
+    store.upsertStory(story);
+
+    await expect(lifecycle.start(story.id)).rejects.toThrow("Story has no worktree");
+  });
+
+  it("rejects start for unknown story ids", async () => {
+    const { worktreeRoot } = makeGitRepo();
+    const { lifecycle } = makeLifecycle(worktreeRoot);
+
+    await expect(lifecycle.start("missing-story")).rejects.toThrow("Unknown story: missing-story");
+  });
 });

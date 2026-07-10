@@ -40,6 +40,14 @@ export class StoryLifecycle {
     return result(story, story ? [storyEvent("started", story)] : []);
   }
 
+  async start(id: string): Promise<LifecycleResult<Story>> {
+    const story = await this.queue.get(id);
+    if (!story) throw new Error(`Unknown story: ${id}`);
+    if (story.column !== "in_progress") throw new Error("Only in-progress stories can be started");
+    if (!story.worktree) throw new Error("Story has no worktree");
+    return result(story, [storyEvent("started", story)]);
+  }
+
   async update(args: Parameters<QueueManager["update"]>[0]): Promise<LifecycleResult<{ ok: true }>> {
     return result(await this.queue.update(args));
   }

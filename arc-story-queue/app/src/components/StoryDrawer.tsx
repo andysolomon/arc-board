@@ -5,6 +5,7 @@ import type { BoardStore, RefineAction } from "../lib/boardStore";
 import {
   COLUMN_LABELS,
   columnDotColor,
+  hasLiveWorker,
   routeAccess,
   routeColor,
   routeLabel,
@@ -86,7 +87,12 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
         )}
 
         {story.column === "in_progress" && story.worktree && (
-          <AbandonActions store={store} story={story} />
+          <>
+            {(!boardStory || !hasLiveWorker(boardStory)) && (
+              <StartActions store={store} story={story} />
+            )}
+            <AbandonActions store={store} story={story} />
+          </>
         )}
 
         <DelegationContract story={story} />
@@ -482,6 +488,32 @@ function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
           Merge PR &amp; clean worktree
         </button>
       </div>
+      {error && <div className="connect-bar__error">{error}</div>}
+    </Section>
+  );
+}
+
+function StartActions({ store, story }: { store: BoardStore; story: Story }) {
+  const { busy, error, run } = useStoryAction();
+  const { maxParallel } = store.getConfig();
+  const slotsBusy = store.liveWorkerCount() >= maxParallel;
+  return (
+    <Section label="Start work">
+      <p className="sq-drawer__desc">
+        Dispatch a worker to execute this reserved story in its worktree.
+      </p>
+      {slotsBusy ? (
+        <p className="sq-drawer__desc">All {maxParallel} worker slots busy</p>
+      ) : (
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={busy}
+          onClick={() => void run(() => store.startStory(story.id))}
+        >
+          Start work
+        </button>
+      )}
       {error && <div className="connect-bar__error">{error}</div>}
     </Section>
   );
