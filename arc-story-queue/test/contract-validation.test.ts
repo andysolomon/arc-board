@@ -203,6 +203,46 @@ describe("arc-contracts schema fixtures", () => {
     });
     expect(normalizeStory({ ...makeStory(), orchestration: preserved }).orchestration).toBe(preserved);
   });
+
+  it("accepts a story with shipMode and reviewLoop", () => {
+    expect(
+      validateStory(
+        makeStory({
+          shipMode: "auto",
+          reviewLoop: { round: 1, maxRounds: 3, verdict: "pending", blockingCount: 2 },
+        })
+      )
+    ).toBe(true);
+  });
+
+  it("accepts legacy stories without shipMode or reviewLoop", () => {
+    const { shipMode: _shipMode, reviewLoop: _reviewLoop, ...legacyStory } = makeStory({
+      shipMode: "pr",
+      reviewLoop: { round: 0, maxRounds: 1, verdict: "pending", blockingCount: 0 },
+    });
+
+    expect(validateStory(legacyStory)).toBe(true);
+  });
+
+  it("rejects reviewLoop with an unknown verdict", () => {
+    expect(() =>
+      validateStory(
+        makeStory({
+          reviewLoop: { round: 1, maxRounds: 3, verdict: "rejected" as "pending", blockingCount: 0 },
+        })
+      )
+    ).toThrow(/Invalid Story/);
+  });
+
+  it("rejects approved reviewLoop with blockingCount greater than zero", () => {
+    expect(() =>
+      validateStory(
+        makeStory({
+          reviewLoop: { round: 2, maxRounds: 3, verdict: "approved", blockingCount: 2 },
+        })
+      )
+    ).toThrow(/Invalid Story/);
+  });
 });
 
 describe("contract validation at the MCP boundary", () => {

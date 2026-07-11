@@ -196,6 +196,16 @@ export interface SliceDetail {
   userStoriesCovered: string;
 }
 
+export type ShipMode = "pr" | "auto" | "merge";
+export type ReviewVerdict = "pending" | "changes_requested" | "approved";
+
+export interface ReviewLoop {
+  round: number;
+  maxRounds: number;
+  verdict: ReviewVerdict;
+  blockingCount: number;
+}
+
 export interface Story {
   id: string;
   wid: string;                  // "W-000001"
@@ -225,6 +235,8 @@ export interface Story {
   orchestration?: OrchestrationPlan | null;
   bug?: BugDetail;
   slice?: SliceDetail;
+  shipMode?: ShipMode;
+  reviewLoop?: ReviewLoop | null;
 }
 
 /** Worker -> parent structured handoff (the compact result Fable evaluates). */
@@ -530,6 +542,29 @@ const sliceDetailSchema: JsonSchema = {
   additionalProperties: false,
 };
 
+const reviewLoopSchema: JsonSchema = {
+  type: "object",
+  required: ["round", "maxRounds", "verdict", "blockingCount"],
+  properties: {
+    round: { type: "integer" },
+    maxRounds: { type: "integer" },
+    verdict: { enum: ["pending", "changes_requested", "approved"] },
+    blockingCount: { type: "integer" },
+  },
+  allOf: [
+    {
+      if: {
+        properties: { verdict: { const: "approved" } },
+        required: ["verdict"],
+      },
+      then: {
+        properties: { blockingCount: { const: 0 } },
+      },
+    },
+  ],
+  additionalProperties: false,
+};
+
 export const storySchema: JsonSchema = {
   $schema: "http://json-schema.org/draft-07/schema#",
   $id: "https://arc.dev/schema/story.json",
@@ -581,6 +616,8 @@ export const storySchema: JsonSchema = {
     orchestration: { anyOf: [orchestrationPlanObjectSchema, { type: "null" }] },
     bug: bugDetailSchema,
     slice: sliceDetailSchema,
+    shipMode: { enum: ["pr", "auto", "merge"] },
+    reviewLoop: { anyOf: [reviewLoopSchema, { type: "null" }] },
   },
   additionalProperties: false,
 };
@@ -823,5 +860,12 @@ export function normalizeStory(
         : { status: "unplanned" },
     ...(value.bug && typeof value.bug === "object" ? { bug: value.bug as BugDetail } : {}),
     ...(value.slice && typeof value.slice === "object" ? { slice: value.slice as SliceDetail } : {}),
+    ...(value.shipMode === "auto" || value.shipMode === "merge" || value.shipMode === "pr"
+      ? { shipMode: value.shipMode }
+      : "shipMode" in value
+        ? { shipMode: "pr" as ShipMode }
+        : {}),
+    ...(value.reviewLoop && typeof value.reviewLoop === "object" ? { reviewLoop: value.reviewLoop as ReviewLoop } : {}),
+    ...(value.reviewLoop === null ? { reviewLoop: null } : {}),
   };
 }

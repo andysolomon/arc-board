@@ -171,6 +171,34 @@
         "userStoriesCovered": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
+    },
+    "shipMode": { "enum": ["pr", "auto", "merge"] },
+    "reviewLoop": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["round", "maxRounds", "verdict", "blockingCount"],
+          "properties": {
+            "round": { "type": "integer" },
+            "maxRounds": { "type": "integer" },
+            "verdict": { "enum": ["pending", "changes_requested", "approved"] },
+            "blockingCount": { "type": "integer" }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "verdict": { "const": "approved" } },
+                "required": ["verdict"]
+              },
+              "then": {
+                "properties": { "blockingCount": { "const": 0 } }
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
     }
   },
   "additionalProperties": false
