@@ -1,5 +1,5 @@
 import type { Story } from "arc-contracts";
-import { runOrchestrationAnalysis, type OrchestrationAnalysis } from "./orchestrator-executor.js";
+import { runOrchestrationAnalysis, type AnalysisFallbackBackend, type OrchestrationAnalysis } from "./orchestrator-executor.js";
 import { storyDigest } from "./story-digest.js";
 import type { QueueManager } from "./queue.js";
 import type { SessionRegistry } from "./registry.js";
@@ -9,7 +9,10 @@ export interface PlannerWorkerDeps {
   queue: QueueManager;
   registry: SessionRegistry;
   sse: SseHub;
-  analyze?: (story: Story, repositoryPath: string, opts: { signal: AbortSignal }) => Promise<{ analysis: OrchestrationAnalysis }>;
+  analyze?: (story: Story, repositoryPath: string, opts: {
+    signal: AbortSignal;
+    onFallback?: (retry: { backend: AnalysisFallbackBackend; previousBackend: "codex" | "claude" | "composer"; attempt: number; error: string }) => Promise<void> | void;
+  }) => Promise<{ analysis: OrchestrationAnalysis }>;
   now?: () => Date;
 }
 
@@ -18,8 +21,8 @@ export interface PlannerWorkerOptions {
   maxConcurrent?: number;
 }
 
-function event(kind: StoryLifecycleEvent["kind"], story: Story): StoryLifecycleEvent {
-  return { kind, id: story.id, wid: story.wid, title: story.title, column: story.column };
+function event(kind: StoryLifecycleEvent["kind"], story: Story, details: Partial<StoryLifecycleEvent> = {}): StoryLifecycleEvent {
+  return { kind, id: story.id, wid: story.wid, title: story.title, column: story.column, ...details };
 }
 
 function isAbort(error: unknown): boolean {
@@ -28,7 +31,10 @@ function isAbort(error: unknown): boolean {
 
 function planningError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message.trim().slice(0, 1_000) || "Orchestration analysis failed";
+  const diagnostic = message.trim();
+  // Backend processes commonly put their actionable diagnostic last. Keep the
+  // bounded tail so durable failure state and its lifecycle event retain it.
+  return diagnostic.slice(-1_000) || "Orchestration analysis failed";
 }
 
 /**
@@ -102,8 +108,9 @@ export class PlannerWorker {
           // plan normally contains failures; this is a final guard against a
           // detached promise becoming an unhandled rejection.
           if (!controller.signal.aborted && !isAbort(error)) {
-            const failed = this.deps.queue.failPlanning(id, planningError(error));
-            if (failed) void this.deps.sse.emitEvent(event("planning-failed", failed));
+            const message = planningError(error);
+            const failed = this.deps.queue.failPlanning(id, message);
+            if (failed) void this.deps.sse.emitEvent(event("planning-failed", failed, { error: message }));
           }
         })
         .finally(() => {
@@ -136,7 +143,14 @@ export class PlannerWorker {
       await this.deps.sse.emitEvent(event("planning", story));
       if (signal.aborted) return;
       const analyze = this.deps.analyze ?? runOrchestrationAnalysis;
-      const { analysis } = await analyze(story, repositoryPath, { signal });
+      const { analysis } = await analyze(story, repositoryPath, {
+        signal,
+        onFallback: async (retry) => {
+          // Retry visibility is transient only; the durable claim remains
+          // `planning` so cancellation and stale-result guards are unchanged.
+          if (!signal.aborted) await this.deps.sse.emitEvent(event("planning", story, retry));
+        },
+      });
       if (signal.aborted) return;
       const planned = this.deps.queue.finishPlanning(id, {
         status: "planned",
@@ -149,8 +163,9 @@ export class PlannerWorker {
       // Cancellation and stale work are expected lifecycle transitions, not
       // user-visible planning failures and never write a replacement attempt.
       if (signal.aborted || isAbort(error)) return;
-      const failed = this.deps.queue.failPlanning(id, planningError(error));
-      if (failed) await this.deps.sse.emitEvent(event("planning-failed", failed));
+      const message = planningError(error);
+      const failed = this.deps.queue.failPlanning(id, message);
+      if (failed) await this.deps.sse.emitEvent(event("planning-failed", failed, { error: message }));
     }
   }
 }

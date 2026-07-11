@@ -14,6 +14,7 @@ import type { AnnotateOutcome, FsDirListing, Handoff, IntakeDraftProposal, Plan,
 import { IntakeManager } from "./intake.js";
 import { StoryLifecycle, type LifecycleResult } from "./lifecycle.js";
 import { PlannerWorker } from "./planner-worker.js";
+import { resolveAnalysisFallbacks, runOrchestrationAnalysis } from "./orchestrator-executor.js";
 import { QueueManager } from "./queue.js";
 import { SessionRegistry } from "./registry.js";
 import { SseHub } from "./sse.js";
@@ -155,7 +156,19 @@ function createSharedContext(opts: DaemonOptions) {
   const intake = new IntakeManager({ store });
   const lifecycle = new StoryLifecycle(queue, intake);
   const planner = new PlannerWorker(
-    { queue, registry, sse },
+    {
+      queue,
+      registry,
+      sse,
+      analyze: (story, repositoryPath, analyzeOpts) =>
+        // ARC_ORCHESTRATION_ANALYZE_FALLBACKS defaults to `claude`; `none`
+        // explicitly disables it, while `claude,composer` is opt-in because
+        // Composer's only supported mode is workspace-write implement.
+        runOrchestrationAnalysis(story, repositoryPath, {
+          ...analyzeOpts,
+          analysisFallbacks: resolveAnalysisFallbacks(),
+        }),
+    },
     { maxConcurrent: opts.plannerMaxParallel ?? 2 }
   );
   const fsRoot = opts.fsRoot ?? process.env.ARC_BOARD_FS_ROOT ?? homedir();

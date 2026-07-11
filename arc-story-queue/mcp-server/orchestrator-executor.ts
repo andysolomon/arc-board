@@ -15,6 +15,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
 export type OrchestratorBackend = "composer" | "codex" | "claude";
 export type OrchestratorMode = "analyze" | "implement" | "review";
+export type AnalysisFallbackBackend = Exclude<OrchestratorBackend, "codex">;
 
 export interface OrchestratorRunResult {
   status: "completed" | "blocked";
@@ -48,7 +49,13 @@ export interface OrchestratorTraceRecord {
 
 export interface OrchestratorExecutorOptions {
   bin?: string;
+  /**
+   * Compatibility switch for the runner's built-in Codex -> Claude retry.
+   * Omit for the safe default; set false to explicitly disable it.
+   */
   fallbackClaude?: boolean;
+  /** Ordered opt-in analysis fallbacks. Composer is write-capable, even when its task is analysis-only. */
+  analysisFallbacks?: AnalysisFallbackBackend[];
 }
 
 export interface StreamLineFn {
@@ -111,6 +118,30 @@ export interface ResolvedOrchestrationExecution {
   mode: OrchestratorMode;
   route: RouteId;
   usedFallback: boolean;
+}
+
+/**
+ * Daemon configuration for background analysis. The default deliberately uses
+ * the runner's native Codex -> Claude fallback; `none` (or `off`) makes an
+ * explicit no-fallback deployment possible. Composer is never implicit.
+ */
+export function resolveAnalysisFallbacks(env: NodeJS.ProcessEnv = process.env): AnalysisFallbackBackend[] {
+  const configured = env.ARC_ORCHESTRATION_ANALYZE_FALLBACKS?.trim();
+  if (!configured) return ["claude"];
+  if (["none", "off", "false", "0"].includes(configured.toLowerCase())) return [];
+  const fallbacks = configured.split(",").map((value) => value.trim().toLowerCase()).filter(Boolean);
+  if (!fallbacks.length || fallbacks.some((value) => value !== "claude" && value !== "composer")) {
+    throw new Error("ARC_ORCHESTRATION_ANALYZE_FALLBACKS must be none, claude, composer, or a comma-separated claude,composer chain");
+  }
+  if (new Set(fallbacks).size !== fallbacks.length) {
+    throw new Error("ARC_ORCHESTRATION_ANALYZE_FALLBACKS must not repeat a backend");
+  }
+  return fallbacks as AnalysisFallbackBackend[];
+}
+
+function analysisFallbacks(opts: OrchestratorExecutorOptions): AnalysisFallbackBackend[] {
+  if (opts.analysisFallbacks) return opts.analysisFallbacks;
+  return opts.fallbackClaude === false ? [] : ["claude"];
 }
 
 function isOrchestratorBackend(value: string): value is OrchestratorBackend {
@@ -187,6 +218,15 @@ export function buildOrchestrationAnalysisTaskContract(story: Story): string {
   ].join("\n");
 }
 
+/** Composer only exposes implement mode, so make its opt-in fallback contract explicit and non-authorizing. */
+export function buildComposerAnalysisTaskContract(story: Story): string {
+  return [
+    buildOrchestrationAnalysisTaskContract(story), "", "## Composer fallback restriction",
+    "This is an analysis-only fallback despite Composer's implement mode. Do not modify files, create a worktree, acquire a lock, commit, push, merge, or deploy.",
+    "Return the required strict execution-plan JSON with backend `composer`, mode `implement`, and route `composer-implement`.",
+  ].join("\n");
+}
+
 export function orchestratorRunArgs(
   story: Story,
   backend: OrchestratorBackend,
@@ -202,9 +242,10 @@ export function orchestratorRunArgs(
   return { command: bin, args };
 }
 
-export function orchestratorAnalyzeArgs(story: Story, repositoryPath: string, bin: string, opts: Pick<OrchestratorExecutorOptions, "fallbackClaude"> = {}) {
+export function orchestratorAnalyzeArgs(story: Story, repositoryPath: string, bin: string, opts: Pick<OrchestratorExecutorOptions, "fallbackClaude" | "analysisFallbacks"> = {}) {
+  const fallbacks = analysisFallbacks(opts);
   return orchestratorRunArgs(story, "codex", "analyze", bin, {
-    ...opts,
+    fallbackClaude: fallbacks.length === 1 && fallbacks[0] === "claude",
     cwd: repositoryPath,
     task: buildOrchestrationAnalysisTaskContract(story),
   });
@@ -294,7 +335,13 @@ export async function runOrchestratorPhase(
   story: Story,
   backend: OrchestratorBackend,
   mode: OrchestratorMode,
-  opts: OrchestratorExecutorOptions & { cwd?: string; task?: string; signal?: AbortSignal } = {}
+  opts: OrchestratorExecutorOptions & {
+    cwd?: string;
+    task?: string;
+    signal?: AbortSignal;
+    /** Observes stderr as it arrives while retaining the bounded diagnostic buffer. */
+    onStderr?: StderrObserver;
+  } = {}
 ): Promise<{ result: OrchestratorRunResult; stderr: string }> {
   const bin = opts.bin ?? resolveOrchestratorBin();
   const { command, args } = orchestratorRunArgs(story, backend, mode, bin, opts);
@@ -306,26 +353,163 @@ export async function runOrchestratorPhase(
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-12_000); });
+    child.stderr.on("data", (chunk: string) => {
+      stderr = (stderr + chunk).slice(-12_000);
+      try {
+        // stderr observers are diagnostic telemetry. A failed observer must
+        // never turn a successful runner result into a failed orchestration.
+        void Promise.resolve(opts.onStderr?.(chunk)).catch(() => undefined);
+      } catch {
+        // A synchronous observer failure is likewise telemetry-only.
+      }
+    });
     child.on("error", reject);
     child.on("close", (code) => {
+      try {
+        // Flush the final unterminated stderr line before resolving. This is
+        // important for runners that print their retry marker without `\n`.
+        void Promise.resolve(opts.onStderr?.flush?.()).catch(() => undefined);
+      } catch {
+        // Observer failures are non-fatal activity telemetry.
+      }
       if (code !== 0) return reject(new Error(`fable-orchestrator exited with code ${code}: ${stderr.trim() || "no stderr"}`));
       try { resolve({ result: parseOrchestratorStdout(stdout), stderr }); } catch (error) { reject(error); }
     });
   });
 }
 
+const BUILT_IN_CLAUDE_RETRY_MARKER = /^fable-orchestrator: codex unavailable \((.+)\); retrying on claude backend$/;
+
+/**
+ * The runner reports its native fallback on one stderr line. Buffer only an
+ * incomplete line so detection remains correct even when stream chunks split
+ * the marker, while malformed or duplicate lines cannot trigger another retry.
+ */
+interface StderrObserver {
+  (chunk: string): Promise<void> | void;
+  flush?: () => Promise<void> | void;
+}
+
+function observeBuiltInClaudeRetry(
+  onRetry: (error: string) => Promise<void> | void
+): StderrObserver {
+  let incompleteLine = "";
+  let observed = false;
+  const observeLine = (rawLine: string): Promise<void> | void => {
+    if (observed) return;
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    const match = BUILT_IN_CLAUDE_RETRY_MARKER.exec(line);
+    const error = match?.[1]?.trim();
+    if (!error) return;
+    observed = true;
+    return onRetry(error);
+  };
+  const observer: StderrObserver = (chunk) => {
+    if (observed) return;
+    incompleteLine += chunk;
+    const lines = incompleteLine.split("\n");
+    incompleteLine = lines.pop() ?? "";
+    for (const rawLine of lines) {
+      const result = observeLine(rawLine);
+      if (result || observed) return result;
+    }
+  };
+  observer.flush = () => {
+    const finalLine = incompleteLine;
+    incompleteLine = "";
+    return observeLine(finalLine);
+  };
+  return observer;
+}
+
+/** Activity callbacks must not gate backend retries or successful analysis. */
+function reportFallback(
+  onFallback: ((retry: { backend: AnalysisFallbackBackend; previousBackend: OrchestratorBackend; attempt: number; error: string }) => Promise<void> | void) | undefined,
+  retry: { backend: AnalysisFallbackBackend; previousBackend: OrchestratorBackend; attempt: number; error: string }
+): void {
+  try {
+    void Promise.resolve(onFallback?.(retry)).catch(() => undefined);
+  } catch {
+    // Fallback notifications are best-effort telemetry.
+  }
+}
+
 export async function runOrchestrationAnalysis(
   story: Story,
   repositoryPath: string,
-  opts: OrchestratorExecutorOptions & { signal?: AbortSignal } = {}
-): Promise<{ result: OrchestratorRunResult; analysis: OrchestrationAnalysis; stderr: string }> {
-  const { result, stderr } = await runOrchestratorPhase(story, "codex", "analyze", {
-    ...opts,
-    cwd: repositoryPath,
-    task: buildOrchestrationAnalysisTaskContract(story),
-  });
-  return { result, analysis: extractOrchestrationAnalysis(result), stderr };
+  opts: OrchestratorExecutorOptions & {
+    signal?: AbortSignal;
+    onFallback?: (retry: { backend: AnalysisFallbackBackend; previousBackend: OrchestratorBackend; attempt: number; error: string }) => Promise<void> | void;
+  } = {}
+): Promise<{ result: OrchestratorRunResult; analysis: OrchestrationAnalysis; stderr: string; attemptedBackends: OrchestratorBackend[] }> {
+  const fallbacks = analysisFallbacks(opts);
+  // Keep the observable Codex/Claude default on the installed runner. It
+  // retains its trace linkage and only retries availability-classified errors.
+  if (fallbacks.length === 1 && fallbacks[0] === "claude") {
+    let usedClaudeFallback = false;
+    const { result, stderr } = await runOrchestratorPhase(story, "codex", "analyze", {
+      ...opts,
+      fallbackClaude: true,
+      cwd: repositoryPath,
+      task: buildOrchestrationAnalysisTaskContract(story),
+      onStderr: observeBuiltInClaudeRetry((error) => {
+        usedClaudeFallback = true;
+        reportFallback(opts.onFallback, { backend: "claude", previousBackend: "codex", attempt: 2, error });
+      }),
+    });
+    return {
+      result,
+      analysis: extractOrchestrationAnalysis(result),
+      stderr,
+      attemptedBackends: usedClaudeFallback ? ["codex", "claude"] : ["codex"],
+    };
+  }
+
+  const attempts: Array<{ backend: OrchestratorBackend; mode: OrchestratorMode; task: string }> = [
+    { backend: "codex", mode: "analyze", task: buildOrchestrationAnalysisTaskContract(story) },
+    ...fallbacks.map((backend) => ({
+      backend,
+      mode: backend === "composer" ? "implement" as const : "analyze" as const,
+      task: backend === "composer" ? buildComposerAnalysisTaskContract(story) : buildOrchestrationAnalysisTaskContract(story),
+    })),
+  ];
+  const attemptedBackends: OrchestratorBackend[] = [];
+  let previousError: Error | undefined;
+  for (const [index, attempt] of attempts.entries()) {
+    if (index > 0) {
+      const error = previousError?.message ?? "backend unavailable";
+      reportFallback(opts.onFallback, { backend: attempt.backend as AnalysisFallbackBackend, previousBackend: attempts[index - 1]!.backend, attempt: index + 1, error });
+    }
+    attemptedBackends.push(attempt.backend);
+    try {
+      const { result, stderr } = await runOrchestratorPhase(story, attempt.backend, attempt.mode, {
+        ...opts,
+        fallbackClaude: false,
+        cwd: repositoryPath,
+        task: attempt.task,
+      });
+      const analysis = extractOrchestrationAnalysis(result);
+      if (
+        attempt.backend === "composer" &&
+        (analysis.backend !== "composer" || analysis.mode !== "implement" || analysis.route !== "composer-implement")
+      ) {
+        throw new Error("Invalid orchestration analysis: Composer fallback must return composer/implement (composer-implement)");
+      }
+      return { result, analysis, stderr, attemptedBackends };
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      previousError = normalized;
+      if (!isRecoverableBackendUnavailable(normalized) || index === attempts.length - 1) break;
+    }
+  }
+  const attempted = attemptedBackends.join(" -> ");
+  throw new Error(`Orchestration analysis exhausted backends (${attempted}): ${previousError?.message ?? "unknown backend error"}`);
+}
+
+/** The runner emits this structured marker; common direct executable outages stay recoverable in tests and older runners. */
+export function isRecoverableBackendUnavailable(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /backend_unavailable|usage limit|rate limit|hit your usage|not logged in|authentication|\b401\b|\bENOENT\b|CLI not found/i.test(message);
 }
 
 export async function runOrchestratorPipeline(client: Client, story: Story, streamLine: StreamLineFn, opts: OrchestratorExecutorOptions = {}) {

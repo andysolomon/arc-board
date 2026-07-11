@@ -31,6 +31,12 @@ export interface StoryLifecycleEvent {
   title?: string;
   column?: string;
   pr?: string;
+  /** Present for visible background-planner fallback retries. */
+  backend?: "codex" | "claude" | "composer";
+  previousBackend?: "codex" | "claude" | "composer";
+  attempt?: number;
+  /** Preserved terminal/retry backend diagnostic; the drawer reads durable story.orchestration.error. */
+  error?: string;
 }
 
 /** Fan-out story.update payloads to all MCP SSE subscribers. */
