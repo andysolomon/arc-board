@@ -413,6 +413,18 @@ body {
   background: rgba(255, 107, 107, 0.14);
 }
 
+.story-card__review-loop {
+  font-size: 10px;
+  font-family: var(--sq-mono);
+  font-weight: 600;
+  color: var(--sq-running);
+  background: rgba(245, 181, 68, 0.1);
+  border: 1px solid rgba(245, 181, 68, 0.28);
+  border-radius: 999px;
+  padding: 2px 7px;
+  letter-spacing: 0.02em;
+}
+
 .story-card__title {
   margin: 0;
   font-size: 13px;

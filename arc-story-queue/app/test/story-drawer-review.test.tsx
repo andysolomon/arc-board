@@ -205,4 +205,167 @@ describe("StoryDrawer review readiness", () => {
     });
     await waitFor(() => expect(container.textContent).toContain("Composer remediation failed"));
   });
+
+  it("renders review-rounds strip from reviewLoop fixture", async () => {
+    const story = reviewStory({
+      reviewLoop: {
+        round: 1,
+        maxRounds: 3,
+        verdict: "changes_requested",
+        blockingCount: 2,
+        prCommentsUrl: "https://github.com/acme/board/pull/54#issuecomment-1",
+      },
+    });
+    const readiness: PrReadiness = {
+      mergeStateStatus: "CLEAN",
+      failingChecks: [],
+      pendingChecks: [],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="review-rounds-strip"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="review-rounds-round"]')?.textContent).toBe("round 1/3");
+      expect(container.querySelector('[data-testid="review-rounds-verdict"]')?.textContent).toBe("changes requested");
+      expect(container.querySelector('[data-testid="review-rounds-blocking"]')?.textContent).toBe("2 blocking");
+      expect(container.querySelector('[data-testid="review-rounds-comments-link"]')).not.toBeNull();
+    });
+  });
+
+  it("omits review-rounds strip for legacy stories without reviewLoop", async () => {
+    const story = reviewStory();
+    const readiness: PrReadiness = {
+      mergeStateStatus: "CLEAN",
+      failingChecks: [],
+      pendingChecks: [],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="review-rounds-strip"]')).toBeNull();
+    });
+  });
+
+  it("disables merge with review-loop reason when verdict is pending", async () => {
+    const story = reviewStory({
+      reviewLoop: { round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0 },
+    });
+    const readiness: PrReadiness = {
+      mergeStateStatus: "CLEAN",
+      failingChecks: [],
+      pendingChecks: [],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      const button = container.querySelector(".btn--success") as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toContain("awaiting review (0/3)");
+      expect(container.querySelector('[data-testid="merge-override"]')).not.toBeNull();
+    });
+  });
+
+  it("enables merge when reviewLoop verdict is approved", async () => {
+    const story = reviewStory({
+      reviewLoop: { round: 2, maxRounds: 3, verdict: "approved", blockingCount: 0 },
+    });
+    const readiness: PrReadiness = {
+      mergeStateStatus: "CLEAN",
+      failingChecks: [],
+      pendingChecks: [],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      const button = container.querySelector(".btn--success") as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toContain("✓ Merge PR & clean worktree");
+      expect(container.querySelector('[data-testid="merge-override"]')).toBeNull();
+    });
+  });
+
+  it("Merge anyway invokes mergeStory with override", async () => {
+    const story = reviewStory({
+      reviewLoop: { round: 1, maxRounds: 3, verdict: "changes_requested", blockingCount: 1 },
+    });
+    const readiness: PrReadiness = {
+      mergeStateStatus: "CLEAN",
+      failingChecks: [],
+      pendingChecks: [],
+    };
+    const mergeStory = vi.fn(async () => story);
+    const store = storeStub(boardStory(story), readiness, { mergeStory });
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="merge-override"]')).not.toBeNull();
+    });
+
+    await act(async () => {
+      (container.querySelector('[data-testid="merge-override"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+
+    expect(mergeStory).toHaveBeenCalledWith(story.id, { override: true });
+  });
+
+  it("disables override when both review and readiness gates are blocked", async () => {
+    const story = reviewStory({
+      reviewLoop: { round: 1, maxRounds: 3, verdict: "changes_requested", blockingCount: 1 },
+    });
+    const readiness: PrReadiness = {
+      mergeStateStatus: "BLOCKED",
+      failingChecks: ["Merge Gate"],
+      pendingChecks: [],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      const override = container.querySelector('[data-testid="merge-override"]') as HTMLButtonElement;
+      expect(override).not.toBeNull();
+      expect(override.disabled).toBe(true);
+      expect(override.textContent).toContain("Merge anyway (skips review only)");
+    });
+  });
+
+  it("omits override button for legacy stories without reviewLoop", async () => {
+    const story = reviewStory();
+    const readiness: PrReadiness = {
+      mergeStateStatus: "CLEAN",
+      failingChecks: [],
+      pendingChecks: [],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="merge-override"]')).toBeNull();
+    });
+  });
 });

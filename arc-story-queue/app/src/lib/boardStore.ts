@@ -831,10 +831,13 @@ export class BoardStore {
     return this.sync.call<PrReadiness>("pr.readiness", { id });
   }
 
-  async mergeStory(id: string): Promise<Story> {
+  async mergeStory(id: string, options?: { override?: boolean }): Promise<Story> {
     let result: unknown;
     try {
-      result = await this.sync.callRaw("story.merge", { id });
+      result = await this.sync.callRaw("story.merge", {
+        id,
+        ...(options?.override ? { override: true } : {}),
+      });
     } catch (err) {
       throw new Error(err instanceof Error ? err.message : "Failed to merge story");
     }
