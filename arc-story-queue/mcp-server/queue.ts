@@ -24,6 +24,7 @@ import {
   throwMergeError,
   type MergeReadiness,
 } from "./merge-errors.js";
+import { storyDigest } from "./story-digest.js";
 import { validateHandoff, validatePlan, validateProject, validateRunRecord, validateStory } from "./validate.js";
 import { ghListIssues, importIssuesToStore, type IssueLister } from "./github-import.js";
 
@@ -70,6 +71,21 @@ export interface QueueDeps {
 
 function slugify(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "worktree";
+}
+
+/** Reset a queued planned story when plan-relevant content no longer matches its digest. */
+function invalidatePlanIfStale(story: Story): void {
+  const orchestration = story.orchestration;
+  if (
+    story.column !== "queued" ||
+    orchestration?.status !== "planned" ||
+    !orchestration.storyDigest
+  ) {
+    return;
+  }
+  if (orchestration.storyDigest !== storyDigest(story)) {
+    story.orchestration = { status: "unplanned" };
+  }
 }
 
 export class QueueManager {
@@ -197,6 +213,7 @@ export class QueueManager {
     const s = this.store.getStory(id);
     if (s) {
       s.plan = plan;
+      invalidatePlanIfStale(s);
       this.store.upsertStory(s);
     }
     return { ok: true };
@@ -206,6 +223,7 @@ export class QueueManager {
     const existing = this.store.getStory(story.id);
     if (!existing) throw new Error(`Unknown story: ${story.id}`);
     validateStory(story);
+    invalidatePlanIfStale(story);
     this.store.upsertStory(story);
     return story;
   }

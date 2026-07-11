@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import type { Story } from "arc-contracts";
 import { runOrchestrationAnalysis, type OrchestrationAnalysis } from "./orchestrator-executor.js";
+import { storyDigest } from "./story-digest.js";
 import type { QueueManager } from "./queue.js";
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub, StoryLifecycleEvent } from "./sse.js";
@@ -29,12 +29,6 @@ function isAbort(error: unknown): boolean {
 function planningError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.trim().slice(0, 1_000) || "Orchestration analysis failed";
-}
-
-function digest(story: Story): string {
-  return createHash("sha256")
-    .update(JSON.stringify({ id: story.id, title: story.title, description: story.description, criteria: story.criteria, tags: story.tags }))
-    .digest("hex");
 }
 
 /**
@@ -148,7 +142,7 @@ export class PlannerWorker {
         status: "planned",
         ...analysis,
         plannedAt: (this.deps.now ?? (() => new Date()))().toISOString(),
-        storyDigest: digest(story),
+        storyDigest: storyDigest(story),
       });
       if (planned && !signal.aborted) await this.deps.sse.emitEvent(event("planned", planned));
     } catch (error) {

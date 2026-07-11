@@ -57,6 +57,26 @@ async function lifecycleJsonResult<T>(sse: SseHub, lifecycleResult: LifecycleRes
   return jsonResult(lifecycleResult.value);
 }
 
+/**
+ * Edits can invalidate a queued story's orchestration plan. The background
+ * planner only reacts to `queued` lifecycle events (plus catch-up scans), so
+ * re-emit one when the story lands queued + unplanned; planner enqueueing is
+ * idempotent, making over-emission harmless.
+ */
+async function emitReplanIfInvalidated(sse: SseHub, queue: QueueManager, id: string) {
+  const story = await queue.get(id);
+  if (story?.column === "queued" && story.orchestration?.status === "unplanned") {
+    await sse.emitEvent({
+      kind: "queued",
+      id: story.id,
+      wid: story.wid,
+      title: story.title,
+      column: story.column,
+      pr: story.pr ?? undefined,
+    });
+  }
+}
+
 function assertGitRepoPath(path: string): void {
   try {
     const inside = execFileSync("git", ["-C", path, "rev-parse", "--is-inside-work-tree"], {
@@ -218,7 +238,11 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         plan: z.custom<Plan>(),
       },
     },
-    async ({ id, plan }) => jsonResult(await queue.setPlan(id, plan))
+    async ({ id, plan }) => {
+      const value = await queue.setPlan(id, plan);
+      await emitReplanIfInvalidated(sse, queue, id);
+      return jsonResult(value);
+    }
   );
 
   server.registerTool(
@@ -230,7 +254,11 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         story: z.custom<Story>(),
       },
     },
-    async ({ story }) => jsonResult(await queue.save(story))
+    async ({ story }) => {
+      const saved = await queue.save(story);
+      await emitReplanIfInvalidated(sse, queue, saved.id);
+      return jsonResult(saved);
+    }
   );
 
   server.registerTool(
