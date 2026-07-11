@@ -311,9 +311,14 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
     {
       title: "Send story to review",
       description: "Send an in-progress story to review: push its worktree branch and open a PR (or use a local:// sentinel for no-code stories), attach a handoff, and move it to Review.",
-      inputSchema: { id: z.string() },
+      inputSchema: {
+        id: z.string(),
+        ship: z.enum(["pr", "auto", "merge"]).optional(),
+        maxRounds: z.number().int().positive().optional(),
+      },
     },
-    async ({ id }) => lifecycleJsonResult(sse, await lifecycle.review(id))
+    async ({ id, ship, maxRounds }) =>
+      lifecycleJsonResult(sse, await lifecycle.review(id, { ship, maxRounds }))
   );
 
   server.registerTool(
@@ -321,9 +326,27 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
     {
       title: "Merge story PR",
       description: "Merge a reviewed story's PR, remove its worktree, release its lock, and move it to Done.",
-      inputSchema: { id: z.string() },
+      inputSchema: {
+        id: z.string(),
+        override: z.boolean().optional(),
+      },
     },
-    async ({ id }) => lifecycleJsonResult(sse, await lifecycle.merge(id))
+    async ({ id, override }) => lifecycleJsonResult(sse, await lifecycle.merge(id, { override }))
+  );
+
+  server.registerTool(
+    "story.review_round",
+    {
+      title: "Record review round",
+      description: "Record a review round verdict for a story in Review, incrementing the round counter and optionally arming auto-merge.",
+      inputSchema: {
+        id: z.string(),
+        verdict: z.enum(["pending", "changes_requested", "approved"]),
+        blockingCount: z.number().int().nonnegative(),
+        prCommentsUrl: z.string().optional(),
+      },
+    },
+    async (args) => lifecycleJsonResult(sse, await lifecycle.reviewRound(args.id, args))
   );
 
   server.registerTool(

@@ -7,7 +7,7 @@ import { QueueManager } from "../mcp-server/dist/queue.js";
 import { SessionRegistry } from "../mcp-server/dist/registry.js";
 import { SseHub } from "../mcp-server/dist/sse.js";
 import { StoryStore } from "../mcp-server/dist/store.js";
-import type { Story } from "arc-contracts";
+import type { Story, ReviewLoop } from "arc-contracts";
 import {
   dispatchBlockReason,
   isDispatchEligible,
@@ -22,6 +22,29 @@ function parseMergeActionError(error: unknown): BoardActionError | null {
   const message = error instanceof Error ? error.message : String(error);
   if (!message.startsWith(ARC_ACTION_ERROR_PREFIX)) return null;
   return JSON.parse(message.slice(ARC_ACTION_ERROR_PREFIX.length)) as BoardActionError;
+}
+
+function approvedReviewLoop(overrides: Partial<ReviewLoop> = {}): ReviewLoop {
+  return { round: 1, maxRounds: 3, verdict: "approved", blockingCount: 0, ...overrides };
+}
+
+function cleanGhRunner(
+  onGh?: (args: string[]) => string | Buffer | undefined
+): ConstructorParameters<typeof QueueManager>[1]["commandRunner"] {
+  return (file, args, options) => {
+    if (file === "gh") {
+      const custom = onGh?.(args);
+      if (custom !== undefined) return custom;
+      if (args.includes("state,mergedAt")) {
+        return Buffer.from(JSON.stringify({ state: "OPEN", mergedAt: null }));
+      }
+      if (args.includes("mergeStateStatus,statusCheckRollup")) {
+        return Buffer.from(JSON.stringify({ mergeStateStatus: "CLEAN", statusCheckRollup: [] }));
+      }
+      return Buffer.from("");
+    }
+    return execFileSync(file, args, options);
+  };
 }
 
 function makeStory(overrides: Partial<Story> = {}): Story {
@@ -359,6 +382,7 @@ describe("QueueManager parallelism law", () => {
       pr: "https://github.com/test/repo/pull/12",
       prState: "open",
       worktree,
+      reviewLoop: approvedReviewLoop(),
     });
     store.upsertStory(story);
     queue.acquireWrite(worktree, story.id);
@@ -368,7 +392,7 @@ describe("QueueManager parallelism law", () => {
     expect(ghCalls).toEqual([
       ["pr", "view", "12", "--json", "state,mergedAt", "--repo", "test/repo"],
       ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
-      ["pr", "merge", "12", "--merge", "--delete-branch", "--repo", "test/repo"],
+      ["pr", "merge", "12", "--squash", "--delete-branch", "--repo", "test/repo"],
     ]);
     expect(merged.column).toBe("done");
     expect(merged.prState).toBe("merged");
@@ -409,6 +433,7 @@ describe("QueueManager parallelism law", () => {
       pr: "https://github.com/test/repo/pull/12",
       prState: "open",
       worktree,
+      reviewLoop: approvedReviewLoop(),
     });
     store.upsertStory(story);
     queue.acquireWrite(worktree, story.id);
@@ -420,7 +445,7 @@ describe("QueueManager parallelism law", () => {
       ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
       ["pr", "update-branch", "12", "--repo", "test/repo"],
       ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
-      ["pr", "merge", "12", "--merge", "--delete-branch", "--repo", "test/repo"],
+      ["pr", "merge", "12", "--squash", "--delete-branch", "--repo", "test/repo"],
     ]);
     expect(merged.column).toBe("done");
     expect(merged.prState).toBe("merged");
@@ -486,6 +511,7 @@ describe("QueueManager parallelism law", () => {
       pr: "https://github.com/test/repo/pull/12",
       prState: "open",
       worktree,
+      reviewLoop: approvedReviewLoop(),
     });
     store.upsertStory(story);
 
@@ -546,6 +572,7 @@ describe("QueueManager parallelism law", () => {
       pr: "https://github.com/test/repo/pull/12",
       prState: "open",
       worktree,
+      reviewLoop: approvedReviewLoop(),
     });
     store.upsertStory(story);
     queue.acquireWrite(worktree, story.id);
@@ -594,6 +621,7 @@ describe("QueueManager parallelism law", () => {
       pr: "https://github.com/test/repo/pull/12",
       prState: "open",
       worktree,
+      reviewLoop: approvedReviewLoop(),
     });
     store.upsertStory(story);
     queue.acquireWrite(worktree, story.id);
@@ -605,7 +633,7 @@ describe("QueueManager parallelism law", () => {
       ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
       ["pr", "edit", "12", "--title", "feat: Add widget", "--repo", "test/repo"],
       ["pr", "view", "12", "--json", "mergeStateStatus,statusCheckRollup", "--repo", "test/repo"],
-      ["pr", "merge", "12", "--merge", "--delete-branch", "--repo", "test/repo"],
+      ["pr", "merge", "12", "--squash", "--delete-branch", "--repo", "test/repo"],
     ]);
     expect(merged.column).toBe("done");
     expect(merged.prState).toBe("merged");
@@ -644,6 +672,7 @@ describe("QueueManager parallelism law", () => {
       pr: "https://github.com/test/repo/pull/12",
       prState: "open",
       worktree,
+      reviewLoop: approvedReviewLoop(),
     });
     store.upsertStory(story);
 
@@ -697,7 +726,7 @@ describe("QueueManager parallelism law", () => {
       pr: "https://github.com/test/repo/pull/99",
       prState: "open",
       worktree,
-      annotation: "accepted",
+      reviewLoop: approvedReviewLoop(),
     });
     store.upsertStory(story);
     queue.acquireWrite(worktree, story.id);
@@ -743,6 +772,7 @@ describe("QueueManager parallelism law", () => {
       pr: "https://github.com/test/repo/pull/12",
       prState: "open",
       worktree,
+      reviewLoop: approvedReviewLoop(),
     });
     store.upsertStory(story);
 
@@ -977,6 +1007,9 @@ describe("QueueManager parallelism law", () => {
     expect(reviewed.column).toBe("review");
     expect(reviewed.pr).toBe("https://github.com/test/repo/pull/42");
     expect(reviewed.prState).toBe("open");
+    expect(reviewed.annotation).toBeUndefined();
+    expect(reviewed.reviewLoop).toEqual({ round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0 });
+    expect(reviewed.shipMode).toBe("pr");
     expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
     expect(gitCalls.some((c) => c.includes("push"))).toBe(true);
     expect(gitCalls.some((c) => c.includes("--allow-empty"))).toBe(false);
@@ -1073,6 +1106,186 @@ describe("QueueManager parallelism law", () => {
     expect(reviewed.pr).toBe("local://arc-story-queue/W-000001");
     expect(ghCalls).toEqual([]);
     expect(gitCalls.some((c) => c.includes("push"))).toBe(false);
+  });
+
+  describe("ship-aware review and verdict-gated merge", () => {
+    it("review() honors ship and maxRounds opts without arming auto-merge for pr/auto modes", async () => {
+      const ghCalls: string[][] = [];
+      const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+        if (file === "gh") {
+          ghCalls.push([...args]);
+          if (args[0] === "pr" && args[1] === "create") {
+            return Buffer.from("https://github.com/test/repo/pull/50");
+          }
+          return Buffer.from("");
+        }
+        if (file === "git" && args.includes("push")) return Buffer.from("");
+        return execFileSync(file, args, options);
+      };
+      const { store, queue } = makeQueue(2, runner);
+      const { worktree } = makeGitFixture();
+      writeFileSync(join(worktree, "change.txt"), "x");
+      execFileSync("git", ["-C", worktree, "add", "."], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree, "commit", "-m", "feature"], { stdio: "pipe" });
+      const story = makeStory({ id: "auto-story", column: "in_progress", worktree, branch: "feat/story-1" });
+      store.upsertStory(story);
+
+      const reviewed = await queue.review(story.id, { ship: "auto", maxRounds: 5 });
+
+      expect(reviewed.shipMode).toBe("auto");
+      expect(reviewed.reviewLoop).toEqual({ round: 0, maxRounds: 5, verdict: "pending", blockingCount: 0 });
+      expect(reviewed.annotation).toBeUndefined();
+      expect(ghCalls.some((args) => args[1] === "merge")).toBe(false);
+    });
+
+    it("review() in merge mode squashes immediately after opening the PR", async () => {
+      const ghCalls: string[][] = [];
+      const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+        if (file === "gh") {
+          ghCalls.push([...args]);
+          if (args[0] === "pr" && args[1] === "create") {
+            return Buffer.from("https://github.com/test/repo/pull/51");
+          }
+          if (args.includes("state,mergedAt")) {
+            return Buffer.from(JSON.stringify({ state: "OPEN", mergedAt: null }));
+          }
+          if (args.includes("mergeStateStatus,statusCheckRollup")) {
+            return Buffer.from(JSON.stringify({ mergeStateStatus: "CLEAN", statusCheckRollup: [] }));
+          }
+          return Buffer.from("");
+        }
+        if (file === "git" && args.includes("push")) return Buffer.from("");
+        return execFileSync(file, args, options);
+      };
+      const { store, queue } = makeQueue(2, runner);
+      const { worktree } = makeGitFixture();
+      writeFileSync(join(worktree, "change.txt"), "x");
+      execFileSync("git", ["-C", worktree, "add", "."], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktree, "commit", "-m", "feature"], { stdio: "pipe" });
+      const story = makeStory({ id: "merge-story", column: "in_progress", worktree, branch: "feat/story-1" });
+      store.upsertStory(story);
+
+      const reviewed = await queue.review(story.id, { ship: "merge" });
+
+      expect(reviewed.column).toBe("done");
+      expect(reviewed.prState).toBe("merged");
+      expect(ghCalls.some((args) => args.includes("--squash"))).toBe(true);
+      expect(ghCalls.some((args) => args.includes("--auto"))).toBe(false);
+    });
+
+    it("reviewRound() sets accepted on approval and arms auto-merge only for auto ship mode", async () => {
+      const ghCalls: string[][] = [];
+      const runner = cleanGhRunner((args) => {
+        ghCalls.push([...args]);
+        return undefined;
+      });
+      const { store, queue } = makeQueue(2, runner);
+      const story = makeStory({
+        column: "review",
+        pr: "https://github.com/test/repo/pull/52",
+        prState: "open",
+        shipMode: "auto",
+        reviewLoop: { round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0 },
+      });
+      store.upsertStory(story);
+
+      const approved = await queue.reviewRound(story.id, {
+        verdict: "approved",
+        blockingCount: 0,
+        prCommentsUrl: "https://github.com/test/repo/pull/52#pullrequestreview-1",
+      });
+
+      expect(approved.annotation).toBe("accepted");
+      expect(approved.reviewLoop).toMatchObject({
+        round: 1,
+        verdict: "approved",
+        blockingCount: 0,
+        prCommentsUrl: "https://github.com/test/repo/pull/52#pullrequestreview-1",
+      });
+      expect(ghCalls).toEqual([
+        ["pr", "merge", "52", "--auto", "--squash", "--delete-branch", "--repo", "test/repo"],
+      ]);
+    });
+
+    it("merge() rejects without approval and succeeds with override", async () => {
+      const ghCalls: string[][] = [];
+      const runner = cleanGhRunner((args) => {
+        ghCalls.push([...args]);
+        return undefined;
+      });
+      const { store, queue } = makeQueue(2, runner);
+      const { worktree } = makeGitFixture();
+      const story = makeStory({
+        column: "review",
+        pr: "https://github.com/test/repo/pull/53",
+        prState: "open",
+        worktree,
+        reviewLoop: { round: 1, maxRounds: 3, verdict: "changes_requested", blockingCount: 2 },
+      });
+      store.upsertStory(story);
+      queue.acquireWrite(worktree, story.id);
+
+      await expect(queue.merge(story.id)).rejects.toSatisfy((error: unknown) => {
+        expect(parseMergeActionError(error)?.code).toBe("review_pending");
+        return true;
+      });
+
+      const merged = await queue.merge(story.id, { override: true });
+
+      expect(merged.column).toBe("done");
+      expect(store.getStory(story.id)?.annotation).toBe("escalated");
+      expect(ghCalls.some((args) => args.includes("--squash"))).toBe(true);
+    });
+
+    it("reviewRound() throws max_rounds_exceeded and escalates after the cap", async () => {
+      const { store, queue } = makeQueue();
+      const story = makeStory({
+        column: "review",
+        pr: "https://github.com/test/repo/pull/54",
+        reviewLoop: { round: 3, maxRounds: 3, verdict: "changes_requested", blockingCount: 1 },
+      });
+      store.upsertStory(story);
+
+      await expect(
+        queue.reviewRound(story.id, { verdict: "changes_requested", blockingCount: 2 })
+      ).rejects.toSatisfy((error: unknown) => {
+        expect(parseMergeActionError(error)?.code).toBe("max_rounds_exceeded");
+        return true;
+      });
+
+      expect(store.getStory(story.id)).toMatchObject({
+        column: "review",
+        annotation: "escalated",
+        reviewLoop: { round: 3, maxRounds: 3, verdict: "changes_requested", blockingCount: 1 },
+      });
+    });
+
+    it("complete() initializes reviewLoop and suppresses premature acceptance", async () => {
+      const { store, queue } = makeQueue();
+      const story = makeStory({ column: "in_progress", shipMode: "pr" });
+      store.upsertStory(story);
+
+      await queue.complete({
+        id: story.id,
+        handoff: {
+          status: "completed",
+          summary: "done",
+          changes: ["a.ts"],
+          verification: ["vitest"],
+          risks: [],
+          next_actions: [],
+        },
+        pr: "https://github.com/test/repo/pull/55",
+        runs: [],
+        outcome: "accepted",
+      });
+
+      expect(store.getStory(story.id)).toMatchObject({
+        column: "review",
+        reviewLoop: { round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0 },
+      });
+      expect(store.getStory(story.id)?.annotation).toBeUndefined();
+    });
   });
 
   it("maxParallel gating makes next() return null when at capacity", async () => {

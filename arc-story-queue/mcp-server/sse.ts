@@ -14,6 +14,7 @@ export type LifecycleKind =
   | "planning-failed"
   | "started"
   | "review"
+  | "review-round"
   | "done"
   | "abandoned"
   | "unqueued"

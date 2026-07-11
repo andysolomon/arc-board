@@ -12,6 +12,9 @@ import {
   type QueueNextResult,
   type RunRecord,
   type PrReadiness,
+  type ReviewLoop,
+  type ReviewVerdict,
+  type ShipMode,
   type Story,
   type StoryDetail,
   isDispatchEligible,
@@ -263,10 +266,18 @@ export class QueueManager {
 
     this.store.saveHandoff(args.id, args.handoff);
 
+    const ship = s.shipMode ?? "pr";
+    const maxRounds = 3;
     s.column = "review";
     s.pr = args.pr;
     s.prState = "open";
-    s.annotation = args.outcome;
+    s.shipMode = ship;
+    s.reviewLoop = { round: 0, maxRounds, verdict: "pending", blockingCount: 0 };
+    if (args.outcome !== "accepted") {
+      s.annotation = args.outcome;
+    } else {
+      delete s.annotation;
+    }
     this.store.upsertStory(s);
 
     for (const run of args.runs) {
@@ -274,6 +285,14 @@ export class QueueManager {
     }
 
     if (s.worktree) this.releaseWrite(s.worktree, s.id);
+
+    if (ship === "merge" && !this.isLocalPr(args.pr)) {
+      await this.mergePr(s);
+      this.finishMergedStory(s);
+    } else if (ship === "merge" && this.isLocalPr(args.pr)) {
+      this.finishMergedStory(s);
+    }
+
     return { ok: true };
   }
 
@@ -367,12 +386,18 @@ export class QueueManager {
    * of base). Local or local/-prefixed repos get a local:// sentinel with no git push
    * or gh calls. Builds a handoff from the worktree git state.
    */
-  async review(id: string): Promise<Story> {
+  async review(
+    id: string,
+    opts: { ship?: ShipMode; maxRounds?: number } = {}
+  ): Promise<Story> {
     const story = this.store.getStory(id);
     if (!story) throw new Error(`Unknown story: ${id}`);
     if (story.column !== "in_progress") throw new Error("Only in-progress stories can be sent to review");
     const worktree = story.worktree?.trim();
     if (!worktree || !existsSync(worktree)) throw new Error(`Story ${id} has no worktree to review`);
+
+    const ship = opts.ship ?? story.shipMode ?? "pr";
+    const maxRounds = opts.maxRounds ?? 3;
 
     const base = this.baseBranch(worktree);
     const { commitCount, changed } = this.reviewGitState(worktree, base);
@@ -408,7 +433,9 @@ export class QueueManager {
     story.column = "review";
     story.pr = pr;
     story.prState = "open";
-    story.annotation = "accepted";
+    story.shipMode = ship;
+    story.reviewLoop = { round: 0, maxRounds, verdict: "pending", blockingCount: 0 };
+    delete story.annotation;
     this.store.upsertStory(story);
 
     const run: RunRecord = {
@@ -424,12 +451,75 @@ export class QueueManager {
       durMs: 1,
       status: "completed",
       changed: changed.length,
-      outcome: "accepted",
+      outcome: "unrated",
     };
     validateRunRecord(run);
     this.store.saveRun(run);
 
     if (story.worktree) this.releaseWrite(story.worktree, story.id);
+
+    if (ship === "merge") {
+      if (!this.isLocalPr(pr)) {
+        await this.mergePr(story);
+      }
+      return this.finishMergedStory(story);
+    }
+
+    return story;
+  }
+
+  async reviewRound(
+    id: string,
+    args: { verdict: ReviewVerdict; blockingCount: number; prCommentsUrl?: string }
+  ): Promise<Story> {
+    const story = this.store.getStory(id);
+    if (!story) throw new Error(`Unknown story: ${id}`);
+    if (story.column !== "review") throw new Error("Only review stories can record a review round");
+
+    const loop = story.reviewLoop ?? { round: 0, maxRounds: 3, verdict: "pending" as const, blockingCount: 0 };
+    const maxRounds = loop.maxRounds;
+
+    if (loop.round >= maxRounds && args.verdict === "changes_requested") {
+      story.annotation = "escalated";
+      this.store.upsertStory(story);
+      throwMergeError({
+        code: "max_rounds_exceeded",
+        title: "Maximum review rounds exceeded",
+        detail: `Review reached ${maxRounds} round(s) with changes still requested.`,
+        actions: [
+          "Merge with story.merge {override: true}",
+          "Move the story back to in_progress for more fixes",
+        ],
+        retryable: false,
+      });
+    }
+
+    const nextLoop: ReviewLoop = {
+      round: loop.round + 1,
+      maxRounds,
+      verdict: args.verdict,
+      blockingCount: args.blockingCount,
+      ...(args.prCommentsUrl ? { prCommentsUrl: args.prCommentsUrl } : {}),
+    };
+    story.reviewLoop = nextLoop;
+    validateStory(story);
+    this.store.upsertStory(story);
+
+    if (args.verdict === "approved") {
+      story.annotation = "accepted";
+      this.store.upsertStory(story);
+
+      if (story.shipMode === "auto" && story.pr && !this.isLocalPr(story.pr)) {
+        const selector = this.prSelector(story.pr);
+        const repoArgs = this.ghRepoArgs(story);
+        this.runCommand(
+          "gh",
+          ["pr", "merge", selector, "--auto", "--squash", "--delete-branch", ...repoArgs],
+          { stdio: "pipe" }
+        );
+      }
+    }
+
     return story;
   }
 
@@ -817,7 +907,7 @@ export class QueueManager {
     try {
       this.runCommand(
         "gh",
-        ["pr", "merge", selector, "--merge", "--delete-branch", ...repoArgs],
+        ["pr", "merge", selector, "--squash", "--delete-branch", ...repoArgs],
         { stdio: "pipe" }
       );
     } catch (error) {
@@ -856,7 +946,8 @@ export class QueueManager {
     }
   }
 
-  async merge(id: string): Promise<Story> {
+  async merge(id: string, opts: { override?: boolean } = {}): Promise<Story> {
+    const override = opts.override ?? false;
     const story = this.store.getStory(id);
     if (!story) throw new Error(`Unknown story: ${id}`);
     if (story.column !== "review") throw new Error("Only review stories can be merged");
@@ -877,6 +968,24 @@ export class QueueManager {
       if (state === "CLOSED") {
         return this.evictClosedPr(story);
       }
+    }
+
+    if (story.reviewLoop?.verdict !== "approved" && !override) {
+      throwMergeError({
+        code: "review_pending",
+        title: "Review not approved",
+        detail: "Merge requires an approved review verdict before the PR can land.",
+        actions: [
+          "Record an approved review round with story.review_round",
+          "Or merge with story.merge {override: true}",
+        ],
+        retryable: false,
+      });
+    }
+
+    if (override && story.reviewLoop?.verdict !== "approved") {
+      story.annotation = "escalated";
+      this.store.upsertStory(story);
     }
 
     await this.mergePr(story);

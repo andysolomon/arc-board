@@ -82,13 +82,24 @@ export class StoryLifecycle {
     return result(value, story ? [storyEvent("escalated", story)] : []);
   }
 
-  async review(id: string): Promise<LifecycleResult<Story>> {
-    const story = await this.queue.review(id);
+  async review(
+    id: string,
+    opts: { ship?: "pr" | "auto" | "merge"; maxRounds?: number } = {}
+  ): Promise<LifecycleResult<Story>> {
+    const story = await this.queue.review(id, opts);
     return result(story, [storyEvent("review", story)]);
   }
 
-  async merge(id: string): Promise<LifecycleResult<Story>> {
-    const story = await this.queue.merge(id);
+  async reviewRound(
+    id: string,
+    args: { verdict: "pending" | "changes_requested" | "approved"; blockingCount: number; prCommentsUrl?: string }
+  ): Promise<LifecycleResult<Story>> {
+    const story = await this.queue.reviewRound(id, args);
+    return result(story, [storyEvent("review-round", story)]);
+  }
+
+  async merge(id: string, opts: { override?: boolean } = {}): Promise<LifecycleResult<Story>> {
+    const story = await this.queue.merge(id, opts);
     return result(story, [storyEvent("done", story)]);
   }
 
