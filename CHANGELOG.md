@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/andysolomon/arc-board/compare/v2.0.0...v2.1.0) (2026-07-11)
+
+
+### Features
+
+* **app:** review-loop visibility and gated merge (W-000063) ([#147](https://github.com/andysolomon/arc-board/issues/147)) ([b0bd2b8](https://github.com/andysolomon/arc-board/commit/b0bd2b8ef77fe4a07d141e1b3c9dd418a217480e))
+
 # [2.0.0](https://github.com/andysolomon/arc-board/compare/v1.37.0...v2.0.0) (2026-07-11)
 
 
