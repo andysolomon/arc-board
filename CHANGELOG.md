@@ -1,3 +1,10 @@
+# [1.36.0](https://github.com/andysolomon/arc-board/compare/v1.35.0...v1.36.0) (2026-07-11)
+
+
+### Features
+
+* source routing capability from orchestrator profile (W-000047) ([0b25949](https://github.com/andysolomon/arc-board/commit/0b2594962d6c1e0f306c39b1d74b04f3978b91dd))
+
 # [1.35.0](https://github.com/andysolomon/arc-board/compare/v1.34.0...v1.35.0) (2026-07-11)
 
 
