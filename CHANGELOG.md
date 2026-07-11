@@ -1,3 +1,28 @@
+# [2.0.0](https://github.com/andysolomon/arc-board/compare/v1.37.0...v2.0.0) (2026-07-11)
+
+
+* feat(daemon)!: verdict-gated merge, ship modes, review rounds (W-000061) ([#146](https://github.com/andysolomon/arc-board/issues/146)) ([9097d28](https://github.com/andysolomon/arc-board/commit/9097d28143375009cc3d454d56fff9e4bcc72ad1))
+
+
+### BREAKING CHANGES
+
+* story.merge now fails with review_pending unless the
+story has an approved review verdict or override:true is passed, and
+PRs merge with --squash instead of --merge. Operators and scripts
+relying on unconditional merge-commit behavior must record an approved
+review round (or pass override) and expect squash history.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+* feat(daemon): harden review-round edge cases per review (W-000061)
+
+Review follow-ups on PR #146: review rounds require an open PR,
+auto-merge arming is best-effort (approved state survives gh failures,
+manual gated merge stays available), and story.review_round rejects the
+meaningless 'pending' verdict at the tool boundary.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
 # [1.37.0](https://github.com/andysolomon/arc-board/compare/v1.36.0...v1.37.0) (2026-07-11)
 
 
