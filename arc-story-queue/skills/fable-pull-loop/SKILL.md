@@ -127,9 +127,11 @@ Direct MCP equivalent:
 
 ## Ship the story
 
-`story.complete` lands the story in the `review` column with an open PR and a
-review loop initialized from the story's ship mode (`shipMode`, default `pr`):
-`reviewLoop = {round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0}`.
+In `pr` and `auto` ship modes, `story.complete` lands the story in the
+`review` column with an open PR and an initialized review loop
+(`reviewLoop = {round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0}`);
+in `merge` mode the story merges immediately and goes straight to `done`.
+The ship mode governs whether the loop runs, not its parameters.
 Acceptance is no longer granted at PR-open — an approved review round is what
 sets `annotation = accepted`.
 
