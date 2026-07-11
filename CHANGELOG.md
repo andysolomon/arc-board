@@ -1,3 +1,10 @@
+# [1.32.0](https://github.com/andysolomon/arc-board/compare/v1.31.0...v1.32.0) (2026-07-11)
+
+
+### Features
+
+* unify drawer refine and filing actions on shared async pattern (W-000051) ([#133](https://github.com/andysolomon/arc-board/issues/133)) ([cd18c16](https://github.com/andysolomon/arc-board/commit/cd18c16487a356d481c01a372dafa21e8d8f2c6b)), closes [#111](https://github.com/andysolomon/arc-board/issues/111)
+
 # [1.31.0](https://github.com/andysolomon/arc-board/compare/v1.30.0...v1.31.0) (2026-07-11)
 
 
