@@ -32,3 +32,21 @@ Build the **engine as a headless local service** (MCP server + worktree/lock man
 The working UI prototype (`Story Queue.dc.html`) is the source of truth for layout and interaction.
 
 **Living docs** (post-ship behavior, GitHub reconcile, concurrency): `arc-story-queue/README.md` and `docs/INTEGRATION.md`. Decision record: `BUILD_SPEC.md`.
+
+## Story lifecycle
+
+Columns: **Backlog** → **Queued** → **In Progress** → **Review** → **Done**. After a worker handoff (`story.complete`) or board send (`story.review`), the story lands in **Review** with an open PR and an initialized review loop (`round: 0`, `maxRounds: 3`, `verdict: pending`). Fable runs up to `maxRounds` of `story.review_round` (blocking fixes between rounds); an **approved** round sets `annotation = accepted` and unlocks `story.merge` (squash). In **`auto`** ship mode the daemon arms squash auto-merge on approval instead of requiring an explicit merge call. **`merge`** ship mode skips the loop and squash-merges immediately after PR creation. See `docs/INTEGRATION.md` for ship-mode and gate details.
+
+```mermaid
+flowchart LR
+  Q[Queued] -->|queue.next| IP[In Progress]
+  IP -->|story.complete / story.review| R[Review PR open]
+  R -->|story.review_round × N| R
+  R -->|story.merge approved / auto-merge / ship merge| D[Done]
+  R -->|PR merged reconcile| D
+  R -->|max rounds exceeded| E[escalated]
+  E -->|story.merge override| D
+  R -->|PR closed unmerged reconcile| B[Backlog]
+  IP -->|issue closed reconcile| X((purged))
+  IP -->|story.abandon| B
+```
