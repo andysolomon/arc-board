@@ -1,3 +1,10 @@
+# [1.35.0](https://github.com/andysolomon/arc-board/compare/v1.34.0...v1.35.0) (2026-07-11)
+
+
+### Features
+
+* add resilient analyze fallbacks (W-000057) ([eb76fe3](https://github.com/andysolomon/arc-board/commit/eb76fe31c60bbba34dfb245f6a3396cb8435bb03)), closes [#125](https://github.com/andysolomon/arc-board/issues/125)
+
 # [1.34.0](https://github.com/andysolomon/arc-board/compare/v1.33.0...v1.34.0) (2026-07-11)
 
 
