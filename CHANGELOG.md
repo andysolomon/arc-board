@@ -1,3 +1,10 @@
+# [1.31.0](https://github.com/andysolomon/arc-board/compare/v1.30.0...v1.31.0) (2026-07-11)
+
+
+### Features
+
+* invalidate orchestration plan when story content changes (W-000046) ([#132](https://github.com/andysolomon/arc-board/issues/132)) ([4d39a69](https://github.com/andysolomon/arc-board/commit/4d39a69b7e095654b17540c5c968c9ff8cc97042)), closes [#105](https://github.com/andysolomon/arc-board/issues/105)
+
 # [1.30.0](https://github.com/andysolomon/arc-board/compare/v1.29.0...v1.30.0) (2026-07-11)
 
 
