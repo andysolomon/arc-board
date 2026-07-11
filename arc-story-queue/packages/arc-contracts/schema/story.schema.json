@@ -182,7 +182,8 @@
             "round": { "type": "integer", "minimum": 0 },
             "maxRounds": { "type": "integer", "minimum": 0 },
             "verdict": { "enum": ["pending", "changes_requested", "approved"] },
-            "blockingCount": { "type": "integer", "minimum": 0 }
+            "blockingCount": { "type": "integer", "minimum": 0 },
+            "prCommentsUrl": { "type": "string", "minLength": 1 }
           },
           "allOf": [
             {

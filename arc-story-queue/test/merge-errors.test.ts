@@ -166,4 +166,22 @@ describe("merge-errors", () => {
       expect(parsed.code).toBe("unknown");
     }
   });
+
+  it("round-trips review_pending and max_rounds_exceeded codes", () => {
+    for (const code of ["review_pending", "max_rounds_exceeded"] as const) {
+      try {
+        throwMergeError({
+          code,
+          title: code,
+          detail: "detail",
+          actions: ["action"],
+          retryable: false,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const parsed = JSON.parse(message.slice(ARC_ACTION_ERROR_PREFIX.length)) as { code: string };
+        expect(parsed.code).toBe(code);
+      }
+    }
+  });
 });

@@ -204,6 +204,7 @@ export interface ReviewLoop {
   maxRounds: number;
   verdict: ReviewVerdict;
   blockingCount: number;
+  prCommentsUrl?: string;
 }
 
 export interface Story {
@@ -380,6 +381,8 @@ export type BoardActionErrorCode =
   | "pr_closed"
   | "graphql"
   | "timeout"
+  | "review_pending"
+  | "max_rounds_exceeded"
   | "unknown";
 
 export interface BoardActionError {
@@ -400,6 +403,8 @@ const BOARD_ACTION_ERROR_CODES = new Set<BoardActionErrorCode>([
   "pr_closed",
   "graphql",
   "timeout",
+  "review_pending",
+  "max_rounds_exceeded",
   "unknown",
 ]);
 
@@ -550,6 +555,7 @@ const reviewLoopSchema: JsonSchema = {
     maxRounds: { type: "integer", minimum: 0 },
     verdict: { enum: ["pending", "changes_requested", "approved"] },
     blockingCount: { type: "integer", minimum: 0 },
+    prCommentsUrl: { type: "string", minLength: 1 },
   },
   allOf: [
     {
@@ -713,6 +719,8 @@ export const boardActionErrorSchema: JsonSchema = {
         "pr_closed",
         "graphql",
         "timeout",
+        "review_pending",
+        "max_rounds_exceeded",
         "unknown",
       ],
     },

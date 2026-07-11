@@ -169,6 +169,13 @@ describe("StoryLifecycle", () => {
       },
     ]);
     expect(store.getStory(story.id)?.column).toBe("review");
+    expect(store.getStory(story.id)?.annotation).toBeUndefined();
+    expect(store.getStory(story.id)?.reviewLoop).toEqual({
+      round: 0,
+      maxRounds: 3,
+      verdict: "pending",
+      blockingCount: 0,
+    });
     expect(store.getRunsForStory(story.id)).toHaveLength(1);
     expect(queue.isWriteLocked(dispatched.value.story!.worktree)).toBe(false);
   });
@@ -192,6 +199,7 @@ describe("StoryLifecycle", () => {
       outcome: "accepted",
     });
 
+    await lifecycle.reviewRound(story.id, { verdict: "approved", blockingCount: 0 });
     const merged = await lifecycle.merge(story.id);
 
     expect(merged.events).toEqual([
@@ -349,5 +357,45 @@ describe("StoryLifecycle", () => {
       outcome: "accepted",
     });
     expect(queue.detail(story.id).handoff).toEqual(completed);
+  });
+
+  it("reviewRound returns a review-round lifecycle event", async () => {
+    const { worktreeRoot } = makeGitRepo();
+    const { store, lifecycle } = makeLifecycle(worktreeRoot);
+    const story = makeStory({ column: "review", pr: "https://github.com/test/repo/pull/1", prState: "open" });
+    store.upsertStory(story);
+
+    const round = await lifecycle.reviewRound(story.id, {
+      verdict: "changes_requested",
+      blockingCount: 1,
+    });
+
+    expect(round.events).toEqual([
+      {
+        kind: "review-round",
+        id: story.id,
+        wid: story.wid,
+        title: story.title,
+        column: "review",
+        pr: "https://github.com/test/repo/pull/1",
+      },
+    ]);
+    expect(round.value.reviewLoop).toMatchObject({ round: 1, verdict: "changes_requested", blockingCount: 1 });
+  });
+
+  it("merge with override succeeds when review is not approved", async () => {
+    const { worktreeRoot } = makeGitRepo();
+    const { store, lifecycle } = makeLifecycle(worktreeRoot);
+    const story = makeStory({
+      column: "review",
+      pr: "local://arc-story-queue/W-000001",
+      reviewLoop: { round: 1, maxRounds: 3, verdict: "changes_requested", blockingCount: 1 },
+    });
+    store.upsertStory(story);
+
+    const merged = await lifecycle.merge(story.id, { override: true });
+
+    expect(merged.value.column).toBe("done");
+    expect(store.getStory(story.id)?.annotation).toBe("escalated");
   });
 });
