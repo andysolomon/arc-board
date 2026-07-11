@@ -12,6 +12,7 @@ import {
   type Project,
   type QueueNextResult,
   type RunRecord,
+  type PrReadiness,
   type Story,
   type StoryDetail,
 } from "arc-contracts";
@@ -824,6 +825,10 @@ export class BoardStore {
         detail: state.detail?.story.id === story.id ? { ...state.detail, story } : state.detail,
       };
     });
+  }
+
+  async prReadiness(id: string): Promise<PrReadiness> {
+    return this.sync.call<PrReadiness>("pr.readiness", { id });
   }
 
   async mergeStory(id: string): Promise<Story> {

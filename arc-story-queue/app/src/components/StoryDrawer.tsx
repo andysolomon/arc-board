@@ -1,5 +1,5 @@
 import { useState, useEffect, type CSSProperties, type ReactNode } from "react";
-import type { Handoff, RunRecord, Story, StoryDetail } from "arc-contracts";
+import type { Handoff, PrReadiness, RunRecord, Story, StoryDetail } from "arc-contracts";
 import { dispatchBlockReason } from "arc-contracts";
 import type { BoardStore, RefineAction } from "../lib/boardStore";
 import {
@@ -20,6 +20,7 @@ import { parseBoardActionError } from "../lib/boardActionError";
 import { AsyncButton } from "./AsyncButton";
 import { MergeBlockedCallout } from "./MergeBlockedCallout";
 import { OrchestrationPlanSection } from "./OrchestrationPlanSection";
+import { PrReadinessStrip, usePrReadinessPoll } from "./PrReadinessStrip";
 import { Markdown } from "./Markdown";
 import { useAsyncAction } from "../lib/useAsyncAction";
 
@@ -178,7 +179,7 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
         {handoff && <StructuredHandoff handoff={handoff} story={story} runs={runs} />}
 
         {story.column === "review" && story.pr && story.prState !== "merged" && story.prState !== "closed" && (
-          <ReviewActions store={store} story={story} />
+          <ReviewSection store={store} story={story} />
         )}
       </aside>
     </>
@@ -483,14 +484,41 @@ function useMergePhase(busy: boolean) {
   return busy ? labels[phase] : null;
 }
 
-function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
+function ReviewSection({ store, story }: { store: BoardStore; story: Story }) {
+  const { readiness, loaded, stale } = usePrReadinessPoll(store, story);
+  return (
+    <>
+      <PrReadinessStrip story={story} readiness={readiness} stale={stale} />
+      <ReviewActions store={store} story={story} readiness={loaded ? readiness : null} />
+    </>
+  );
+}
+
+function ReviewActions({
+  store,
+  story,
+  readiness,
+}: {
+  store: BoardStore;
+  story: Story;
+  readiness: PrReadiness | null;
+}) {
   const { busy, error, run } = useAsyncAction();
   const phaseLabel = useMergePhase(busy);
   const structuredError = error ? parseBoardActionError(error) : null;
 
+  const gateBlocked =
+    readiness != null &&
+    (readiness.mergeStateStatus !== "CLEAN" ||
+      readiness.failingChecks.length > 0 ||
+      readiness.pendingChecks.length > 0);
+  const gateWaiting = readiness != null && readiness.pendingChecks.length > 0;
+
   const buttonLabel = busy
     ? (phaseLabel ?? "Syncing branch…")
-    : "✓ Merge PR & clean worktree";
+    : gateWaiting
+      ? "Waiting for Merge Gate…"
+      : "✓ Merge PR & clean worktree";
 
   return (
     <Section label="Review decision">
@@ -498,10 +526,18 @@ function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
         <AsyncButton
           className="btn btn--success sq-action-row__button"
           busy={busy}
+          disabled={!busy && gateBlocked}
           loadingLabel={buttonLabel}
           onClick={() => run(() => store.mergeStory(story.id))}
         >
-          ✓ Merge PR & clean worktree
+          {!busy && gateWaiting ? (
+            <>
+              <span className="sq-merge-phase__spinner" aria-hidden />
+              Waiting for Merge Gate…
+            </>
+          ) : (
+            "✓ Merge PR & clean worktree"
+          )}
         </AsyncButton>
       </div>
       {busy && phaseLabel && (

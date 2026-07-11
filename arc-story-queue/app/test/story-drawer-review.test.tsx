@@ -1,0 +1,158 @@
+/** @vitest-environment jsdom */
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PrReadiness, Story, StoryDetail } from "arc-contracts";
+import type { BoardStore, BoardStory } from "../src/lib/boardStore";
+import { StoryDrawer } from "../src/components/StoryDrawer";
+
+function reviewStory(overrides: Partial<Story> = {}): Story {
+  return {
+    id: "story-review-1",
+    wid: "W-000054",
+    type: "story",
+    title: "PR readiness strip",
+    repo: "acme/board",
+    branch: "feat/W-000054-pr-readiness",
+    worktree: "/tmp/wt/w-000054",
+    column: "review",
+    priority: "med",
+    size: "S",
+    epic: "board",
+    taskClass: "feature",
+    tags: [],
+    description: "",
+    criteria: [],
+    draft: false,
+    issue: "#114",
+    pr: "https://github.com/acme/board/pull/54",
+    ...overrides,
+  };
+}
+
+function boardStory(overrides: Partial<BoardStory> = {}): BoardStory {
+  return {
+    ...reviewStory(),
+    lines: [],
+    lanes: {},
+    ...overrides,
+  };
+}
+
+function detail(story: Story): StoryDetail {
+  return { story, runs: [], handoff: null };
+}
+
+function waitFor(assertion: () => void, timeoutMs = 2_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      try {
+        assertion();
+        resolve();
+      } catch (err) {
+        if (Date.now() - start >= timeoutMs) reject(err);
+        else setTimeout(tick, 20);
+      }
+    };
+    tick();
+  });
+}
+
+function storeStub(
+  board: BoardStory,
+  readiness: PrReadiness,
+  opts: { prReadiness?: BoardStore["prReadiness"] } = {}
+): BoardStore {
+  const prReadiness =
+    opts.prReadiness ??
+    vi.fn(async () => readiness);
+  return {
+    getState: () => ({ stories: { [board.id]: board } }),
+    getConfig: () => ({ maxParallel: 2 }),
+    liveWorkerCount: () => 0,
+    closeStory: () => {},
+    mergeStory: vi.fn(async () => board),
+    prReadiness,
+  } as unknown as BoardStore;
+}
+
+describe("StoryDrawer review readiness", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("renders readiness chips from store.prReadiness", async () => {
+    const story = reviewStory();
+    const readiness: PrReadiness = {
+      mergeStateStatus: "BLOCKED",
+      failingChecks: ["Merge Gate"],
+      pendingChecks: ["CI / lint"],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-testid="pr-readiness-strip"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="pr-readiness-status"]')?.textContent).toBe("BLOCKED");
+      expect(container.querySelectorAll('[data-testid="pr-readiness-fail"]')).toHaveLength(1);
+      expect(container.querySelectorAll('[data-testid="pr-readiness-pending"]')).toHaveLength(1);
+      expect(container.querySelector('[data-testid="pr-readiness-link"]')).not.toBeNull();
+    });
+  });
+
+  it("disables Merge with Waiting for Merge Gate when checks are pending", async () => {
+    const story = reviewStory();
+    const readiness: PrReadiness = {
+      mergeStateStatus: "BLOCKED",
+      failingChecks: [],
+      pendingChecks: ["Merge Gate"],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      const button = container.querySelector(".btn--success") as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toContain("Waiting for Merge Gate…");
+      expect(button.querySelector(".sq-merge-phase__spinner")).not.toBeNull();
+    });
+  });
+
+  it("enables Merge when readiness is CLEAN with no failing or pending checks", async () => {
+    const story = reviewStory();
+    const readiness: PrReadiness = {
+      mergeStateStatus: "CLEAN",
+      failingChecks: [],
+      pendingChecks: [],
+    };
+    const store = storeStub(boardStory(story), readiness);
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+
+    await waitFor(() => {
+      const button = container.querySelector(".btn--success") as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      expect(button.textContent).toContain("✓ Merge PR & clean worktree");
+      expect(container.querySelector('[data-testid="pr-readiness-passing"]')).not.toBeNull();
+    });
+  });
+});

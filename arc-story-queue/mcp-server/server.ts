@@ -599,6 +599,16 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "pr.readiness",
+    {
+      title: "PR readiness",
+      description: "GitHub merge gate snapshot for a review story's open PR.",
+      inputSchema: { id: z.string() },
+    },
+    async ({ id }) => jsonResult(await queue.prReadiness(id))
+  );
+
+  server.registerTool(
     "config.get",
     {
       title: "Config get",

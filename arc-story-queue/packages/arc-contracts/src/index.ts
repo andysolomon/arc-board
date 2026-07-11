@@ -352,6 +352,13 @@ export interface StoryDetail {
   handoff: Handoff | null;
 }
 
+/** GitHub PR merge gate snapshot for the review drawer readiness strip. */
+export interface PrReadiness {
+  mergeStateStatus: string;
+  failingChecks: string[];
+  pendingChecks: string[];
+}
+
 export type BoardActionErrorCode =
   | "checks_failed"
   | "checks_pending"
