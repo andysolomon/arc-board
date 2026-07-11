@@ -2,6 +2,13 @@ import type { BoardActionError, Story } from "arc-contracts";
 import { formatBoardActionError } from "../lib/boardActionError";
 
 const WARN_CODES = new Set(["checks_failed", "branch_policy", "behind_base", "timeout"]);
+const REMEDIATION_CODES = ["checks_failed", "branch_policy", "behind_base", "unknown"] as const;
+type MergeRemediationCode = (typeof REMEDIATION_CODES)[number];
+const remediationCodeSet: ReadonlySet<BoardActionError["code"]> = new Set(REMEDIATION_CODES);
+
+export function canRemediateMerge(code: BoardActionError["code"]): code is MergeRemediationCode {
+  return remediationCodeSet.has(code);
+}
 
 function calloutVariant(code: BoardActionError["code"]): "info" | "warn" | "danger" {
   if (code === "checks_pending") return "info";
@@ -17,11 +24,13 @@ interface MergeBlockedCalloutProps {
   error: BoardActionError;
   story: Story;
   onRetry?: () => void;
+  onFixWithComposer?: (code: "checks_failed" | "branch_policy" | "behind_base" | "unknown") => void;
 }
 
-export function MergeBlockedCallout({ error, story, onRetry }: MergeBlockedCalloutProps) {
+export function MergeBlockedCallout({ error, story, onRetry, onFixWithComposer }: MergeBlockedCalloutProps) {
   const formatted = formatBoardActionError(error);
   const variant = calloutVariant(error.code);
+  const remediationCode = canRemediateMerge(error.code) ? error.code : null;
 
   return (
     <div className={`sq-merge-callout sq-merge-callout--${variant}`} role="alert">
@@ -47,6 +56,11 @@ export function MergeBlockedCallout({ error, story, onRetry }: MergeBlockedCallo
         {error.retryable === true && onRetry && (
           <button type="button" className="btn btn--secondary" onClick={onRetry}>
             Retry merge
+          </button>
+        )}
+        {remediationCode && onFixWithComposer && (
+          <button type="button" className="btn btn--secondary" onClick={() => onFixWithComposer(remediationCode)}>
+            Fix with Composer
           </button>
         )}
       </div>

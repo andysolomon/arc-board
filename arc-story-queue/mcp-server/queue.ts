@@ -148,8 +148,11 @@ export class QueueManager {
     return this.acquireWrite(worktree, storyId);
   }
 
-  releaseWrite(worktree: string): void {
+  /** Release a lock only when the caller still owns it. */
+  releaseWrite(worktree: string, owner: string): boolean {
+    if (this.locks.get(worktree) !== owner) return false;
     this.locks.delete(worktree);
+    return true;
   }
 
   async next(projectId: string): Promise<QueueNextResult> {
@@ -240,7 +243,7 @@ export class QueueManager {
       this.acquireForRoute(story.worktree, args.id, args.route);
     }
     if (story && args.line?.kind === "unlock") {
-      this.releaseWrite(story.worktree);
+      this.releaseWrite(story.worktree, args.id);
     }
     await this.sse.broadcast(args);
     return { ok: true };
@@ -270,7 +273,7 @@ export class QueueManager {
       this.store.saveRun(run);
     }
 
-    if (s.worktree) this.releaseWrite(s.worktree);
+    if (s.worktree) this.releaseWrite(s.worktree, s.id);
     return { ok: true };
   }
 
@@ -287,7 +290,7 @@ export class QueueManager {
     s.annotation = args.outcome;
     this.store.upsertStory(s);
 
-    if (s.worktree) this.releaseWrite(s.worktree);
+    if (s.worktree) this.releaseWrite(s.worktree, s.id);
     return { ok: true };
   }
 
@@ -426,7 +429,7 @@ export class QueueManager {
     validateRunRecord(run);
     this.store.saveRun(run);
 
-    if (story.worktree) this.releaseWrite(story.worktree);
+    if (story.worktree) this.releaseWrite(story.worktree, story.id);
     return story;
   }
 
@@ -849,7 +852,7 @@ export class QueueManager {
         stdio: "pipe",
       });
     } finally {
-      this.releaseWrite(worktree);
+      this.releaseWrite(worktree, story.id);
     }
   }
 
@@ -858,6 +861,11 @@ export class QueueManager {
     if (!story) throw new Error(`Unknown story: ${id}`);
     if (story.column !== "review") throw new Error("Only review stories can be merged");
     if (!story.pr) throw new Error(`Story ${id} has no open PR`);
+    const worktree = story.worktree?.trim();
+    const lockHolder = worktree ? this.writeLockHolder(worktree) : undefined;
+    if (lockHolder && lockHolder !== story.id) {
+      throw new Error(`Story ${id} cannot merge while its worktree is locked by merge remediation`);
+    }
 
     const pr = story.pr.trim();
     if (!this.isLocalPr(pr)) {
