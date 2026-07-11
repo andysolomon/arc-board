@@ -1207,6 +1207,42 @@ describe("QueueManager parallelism law", () => {
       ]);
     });
 
+    it("reviewRound() rejects stories whose PR is not open", async () => {
+      const { store, queue } = makeQueue(2, cleanGhRunner(() => undefined));
+      const story = makeStory({
+        column: "review",
+        pr: "https://github.com/test/repo/pull/52",
+        prState: "merged",
+        reviewLoop: { round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0 },
+      });
+      store.upsertStory(story);
+
+      await expect(
+        queue.reviewRound(story.id, { verdict: "approved", blockingCount: 0 })
+      ).rejects.toThrow(/open PR/);
+    });
+
+    it("reviewRound() keeps the approved state when arming auto-merge fails", async () => {
+      const runner = cleanGhRunner((args) => {
+        if (args[0] === "pr" && args[1] === "merge") throw new Error("auto-merge disallowed");
+        return undefined;
+      });
+      const { store, queue } = makeQueue(2, runner);
+      const story = makeStory({
+        column: "review",
+        pr: "https://github.com/test/repo/pull/52",
+        prState: "open",
+        shipMode: "auto",
+        reviewLoop: { round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0 },
+      });
+      store.upsertStory(story);
+
+      const approved = await queue.reviewRound(story.id, { verdict: "approved", blockingCount: 0 });
+
+      expect(approved.annotation).toBe("accepted");
+      expect(store.getStory(story.id)?.reviewLoop?.verdict).toBe("approved");
+    });
+
     it("merge() rejects without approval and succeeds with override", async () => {
       const ghCalls: string[][] = [];
       const runner = cleanGhRunner((args) => {
@@ -1242,6 +1278,7 @@ describe("QueueManager parallelism law", () => {
       const story = makeStory({
         column: "review",
         pr: "https://github.com/test/repo/pull/54",
+        prState: "open",
         reviewLoop: { round: 3, maxRounds: 3, verdict: "changes_requested", blockingCount: 1 },
       });
       store.upsertStory(story);

@@ -475,6 +475,7 @@ export class QueueManager {
     const story = this.store.getStory(id);
     if (!story) throw new Error(`Unknown story: ${id}`);
     if (story.column !== "review") throw new Error("Only review stories can record a review round");
+    if (story.prState !== "open") throw new Error(`Review rounds require an open PR (prState: ${story.prState ?? "none"})`);
 
     const loop = story.reviewLoop ?? { round: 0, maxRounds: 3, verdict: "pending" as const, blockingCount: 0 };
     const maxRounds = loop.maxRounds;
@@ -512,11 +513,16 @@ export class QueueManager {
       if (story.shipMode === "auto" && story.pr && !this.isLocalPr(story.pr)) {
         const selector = this.prSelector(story.pr);
         const repoArgs = this.ghRepoArgs(story);
-        this.runCommand(
-          "gh",
-          ["pr", "merge", selector, "--auto", "--squash", "--delete-branch", ...repoArgs],
-          { stdio: "pipe" }
-        );
+        try {
+          this.runCommand(
+            "gh",
+            ["pr", "merge", selector, "--auto", "--squash", "--delete-branch", ...repoArgs],
+            { stdio: "pipe" }
+          );
+        } catch {
+          // Arming auto-merge is best-effort: the approved verdict is already
+          // persisted, so the gated story.merge path remains available.
+        }
       }
     }
 

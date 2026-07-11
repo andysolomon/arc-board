@@ -341,7 +341,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       description: "Record a review round verdict for a story in Review, incrementing the round counter and optionally arming auto-merge.",
       inputSchema: {
         id: z.string(),
-        verdict: z.enum(["pending", "changes_requested", "approved"]),
+        verdict: z.enum(["changes_requested", "approved"]),
         blockingCount: z.number().int().nonnegative(),
         prCommentsUrl: z.string().optional(),
       },

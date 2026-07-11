@@ -362,7 +362,7 @@ describe("StoryLifecycle", () => {
   it("reviewRound returns a review-round lifecycle event", async () => {
     const { worktreeRoot } = makeGitRepo();
     const { store, lifecycle } = makeLifecycle(worktreeRoot);
-    const story = makeStory({ column: "review", pr: "https://github.com/test/repo/pull/1" });
+    const story = makeStory({ column: "review", pr: "https://github.com/test/repo/pull/1", prState: "open" });
     store.upsertStory(story);
 
     const round = await lifecycle.reviewRound(story.id, {
