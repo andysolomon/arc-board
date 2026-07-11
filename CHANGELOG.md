@@ -1,3 +1,10 @@
+# [1.34.0](https://github.com/andysolomon/arc-board/compare/v1.33.0...v1.34.0) (2026-07-11)
+
+
+### Features
+
+* add Composer remediation for blocked merges (W-000055) ([#135](https://github.com/andysolomon/arc-board/issues/135)) ([0074367](https://github.com/andysolomon/arc-board/commit/00743678b1d452f610b86114d66e93c80a4ed63a))
+
 # [1.33.0](https://github.com/andysolomon/arc-board/compare/v1.32.0...v1.33.0) (2026-07-11)
 
 
