@@ -400,23 +400,9 @@ function WorkerLaneTerminal({ lane }: { lane: WorkerLane }) {
 }
 
 function RefineActions({ store, story }: { store: BoardStore; story: Story }) {
-  const [refining, setRefining] = useState<RefineAction | null>(null);
+  const [activeAction, setActiveAction] = useState<RefineAction | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  async function run(action: RefineAction) {
-    setRefining(action);
-    setError(null);
-    setNote(null);
-    try {
-      const result = await store.refineStory(story.id, action);
-      setNote(result.note);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRefining(null);
-    }
-  }
+  const { busy, error, run } = useAsyncAction();
 
   const labels: Record<RefineAction, string> = {
     split: "Splitting…",
@@ -424,40 +410,50 @@ function RefineActions({ store, story }: { store: BoardStore; story: Story }) {
     dedupe: "Checking…",
   };
 
+  function runRefine(action: RefineAction) {
+    setActiveAction(action);
+    setNote(null);
+    void run(async () => {
+      const result = await store.refineStory(story.id, action);
+      setNote(result.note);
+      setActiveAction(null);
+    });
+  }
+
   return (
     <Section label="Refine with agent">
       <div className="sq-action-row sq-refine-row">
-        <button
-          type="button"
+        <AsyncButton
           className="btn btn--secondary sq-action-row__button"
-          disabled={!!refining}
-          onClick={() => void run("split")}
+          data-testid="refine-split"
+          busy={busy && activeAction === "split"}
+          disabled={busy}
+          loadingLabel={labels.split}
+          onClick={() => runRefine("split")}
         >
           Split story
-        </button>
-        <button
-          type="button"
+        </AsyncButton>
+        <AsyncButton
           className="btn btn--secondary sq-action-row__button"
-          disabled={!!refining}
-          onClick={() => void run("tighten")}
+          data-testid="refine-tighten"
+          busy={busy && activeAction === "tighten"}
+          disabled={busy}
+          loadingLabel={labels.tighten}
+          onClick={() => runRefine("tighten")}
         >
           Tighten criteria
-        </button>
-        <button
-          type="button"
+        </AsyncButton>
+        <AsyncButton
           className="btn btn--secondary sq-action-row__button"
-          disabled={!!refining}
-          onClick={() => void run("dedupe")}
+          data-testid="refine-dedupe"
+          busy={busy && activeAction === "dedupe"}
+          disabled={busy}
+          loadingLabel={labels.dedupe}
+          onClick={() => runRefine("dedupe")}
         >
           Dedupe
-        </button>
+        </AsyncButton>
       </div>
-      {refining && (
-        <div className="sq-refine-status" role="status" aria-live="polite">
-          <span className="sq-refine-status__spinner" aria-hidden />
-          {labels[refining]}
-        </div>
-      )}
       {note && <div className="sq-refine-note">{note}</div>}
       {error && <div className="connect-bar__error">{error}</div>}
     </Section>
@@ -582,19 +578,12 @@ function AbandonActions({ store, story }: { store: BoardStore; story: Story }) {
 
 function FilingSection({ store, story }: { store: BoardStore; story: Story }) {
   const [issue, setIssue] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState<"request" | "file" | null>(null);
+  const { busy, error, run } = useAsyncAction();
 
-  async function run(fn: () => Promise<unknown>) {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
+  function runFiling(action: "request" | "file", fn: () => Promise<unknown>) {
+    setActiveAction(action);
+    void run(fn);
   }
 
   return (
@@ -605,32 +594,35 @@ function FilingSection({ store, story }: { store: BoardStore; story: Story }) {
           attach the issue.
         </p>
       ) : (
-        <button
-          type="button"
+        <AsyncButton
           className="btn btn--secondary"
+          data-testid="filing-request"
+          busy={busy && activeAction === "request"}
           disabled={busy}
-          onClick={() => void run(() => store.requestFile(story.id))}
+          onClick={() => runFiling("request", () => store.requestFile(story.id))}
         >
           Request Fable to file
-        </button>
+        </AsyncButton>
       )}
       <div className="sq-file-manual">
         <input
           type="text"
           className="sq-file-input sq-mono"
+          data-testid="filing-input"
           placeholder="#123 or issue URL"
           value={issue}
           onChange={(e) => setIssue(e.target.value)}
           disabled={busy}
         />
-        <button
-          type="button"
+        <AsyncButton
           className="btn btn--primary"
+          data-testid="filing-submit"
+          busy={busy && activeAction === "file"}
           disabled={busy || !issue.trim()}
-          onClick={() => void run(() => store.fileStory(story.id, issue.trim()))}
+          onClick={() => runFiling("file", () => store.fileStory(story.id, issue.trim()))}
         >
           File now
-        </button>
+        </AsyncButton>
       </div>
       {error && <div className="connect-bar__error">{error}</div>}
     </Section>
