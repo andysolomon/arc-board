@@ -99,6 +99,65 @@ npm run fable:complete -- \
   --outcome accepted
 ```
 
+## Ship modes & the PR review loop
+
+After `story.complete` or `story.review` opens a PR, **ship mode** controls whether the review loop runs and how merge is triggered. Set `ship` on `story.review` (or persist `shipMode` on the story); default is `pr`.
+
+| Mode | Behavior |
+|---|---|
+| **`pr`** (default) | Opens the PR and runs the full review loop. Fable records rounds with `story.review_round`, then calls `story.merge` after an approved round. |
+| **`auto`** | Same loop as `pr`. When a round is recorded with `verdict: approved`, the daemon arms squash auto-merge on GitHub (`gh pr merge --auto --squash --delete-branch`). `story.merge` remains available if arming fails. |
+| **`merge`** | Squash-merges immediately after PR creation (`story.review` / `story.complete` with `ship: merge`). No review loop and no `story.review_round` path. PR readiness checks and merge remediation still apply. |
+
+### Review loop substate
+
+`story.review` and `story.complete` initialize `reviewLoop` when landing in Review (except `merge` mode, which goes straight to Done):
+
+```json
+{ "round": 0, "maxRounds": 3, "verdict": "pending", "blockingCount": 0 }
+```
+
+`maxRounds` defaults to **3** (override via `story.review { maxRounds }`). Fields on each round:
+
+- **`round`** — incremented by `story.review_round` (starts at 0 before the first round).
+- **`maxRounds`** — cap on `changes_requested` rounds before escalation.
+- **`verdict`** — `pending`, `changes_requested`, or `approved`.
+- **`blockingCount`** — blocking findings for the round.
+- **`prCommentsUrl`** — optional link to the PR review thread.
+
+**No acceptance at PR-open.** `story.review` / `story.complete` do not set `annotation = accepted` when the PR opens. An approved review round sets `annotation = accepted`. The contract rejects `verdict: approved` unless `blockingCount === 0`.
+
+### `story.review_round` tool
+
+Registered on the daemon MCP surface (`story.review_round`):
+
+| Input | Type | Notes |
+|---|---|---|
+| `id` | string | Story id |
+| `verdict` | `changes_requested` \| `approved` | Required |
+| `blockingCount` | non-negative integer | Required; must be `0` when `approved` |
+| `prCommentsUrl` | string | Optional |
+
+Requires the story in **Review** with `prState: open`. Each call increments `round` and persists the verdict.
+
+When `round` has already reached `maxRounds` and the next call would record `changes_requested`, the daemon throws a structured **`max_rounds_exceeded`** error (`MaxRoundsExceeded` in the pull-loop skill), sets `annotation = escalated`, and suggests:
+
+- `story.merge { override: true }`, or
+- move the story back to **In Progress** for a larger fix.
+
+On `verdict: approved`, the daemon sets `annotation = accepted` and, in **`auto`** mode only, arms squash auto-merge (best-effort).
+
+### `story.merge` gate
+
+`story.merge` requires Review with an open PR. Unless `override: true`, `reviewLoop.verdict` must be **`approved`**; otherwise the daemon returns **`review_pending`**.
+
+- **`override: true`** bypasses the app-level verdict gate and sets `annotation = escalated` when the verdict was not approved.
+- All daemon merges use **squash** (`gh pr merge --squash --delete-branch`).
+
+### Gate authority
+
+The daemon's **`reviewLoop.verdict` gate** is the authoritative **application-level** merge gate. **GitHub branch protection** (required reviews, status checks, etc.) is an independent backstop; the daemon never relaxes branch protection. `override: true` bypasses only the app-level gate, not GitHub's.
+
 ## Queue one story
 
 Use one of these paths before running `fable:pull`:
@@ -152,8 +211,12 @@ Mutex keys come from `story.tags` (GitHub issue labels):
 ```mermaid
 flowchart LR
   Q[Queued] -->|queue.next| IP[In Progress]
-  IP -->|story.complete / story.review| R[Review]
-  R -->|story.merge / PR merged reconcile| D[Done]
+  IP -->|story.complete / story.review| R[Review PR open]
+  R -->|story.review_round × N| R
+  R -->|story.merge approved / auto-merge / ship merge| D[Done]
+  R -->|PR merged reconcile| D
+  R -->|max rounds exceeded| E[escalated]
+  E -->|story.merge override| D
   R -->|PR closed unmerged reconcile| B[Backlog]
   IP -->|issue closed reconcile| X((purged))
   IP -->|story.abandon| B

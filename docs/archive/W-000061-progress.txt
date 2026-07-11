@@ -11,6 +11,6 @@ On completion, move this file and the plan to docs/archive/.
     [x] 1.6 - Lifecycle + server wiring
     [x] 1.7 - Audit the story.complete path
     [x] 1.8 - Tests
-[ ] 2.0 - Ship & archive
-    [ ] 2.1 - Verify acceptance criteria / open shipping PR (--ship pr)
-    [ ] 2.2 - On merge: move docs/W-000061-IMPLEMENTATION_PLAN.md + docs/W-000061-progress.txt to docs/archive/
+[x] 2.0 - Ship & archive
+    [x] 2.1 - Verify acceptance criteria / open shipping PR (--ship pr)
+    [x] 2.2 - On merge: move docs/W-000061-IMPLEMENTATION_PLAN.md + docs/W-000061-progress.txt to docs/archive/
