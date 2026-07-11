@@ -551,6 +551,7 @@ function ReviewActions({
           error={structuredError}
           story={story}
           onRetry={() => void run(() => store.mergeStory(story.id))}
+          onFixWithComposer={(code) => void run(() => store.remediateMergeStory(story.id, code))}
         />
       ) : (
         error && <div className="connect-bar__error">{error}</div>

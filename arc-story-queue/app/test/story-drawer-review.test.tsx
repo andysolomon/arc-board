@@ -62,7 +62,11 @@ function waitFor(assertion: () => void, timeoutMs = 2_000): Promise<void> {
 function storeStub(
   board: BoardStory,
   readiness: PrReadiness,
-  opts: { prReadiness?: BoardStore["prReadiness"] } = {}
+  opts: {
+    prReadiness?: BoardStore["prReadiness"];
+    mergeStory?: BoardStore["mergeStory"];
+    remediateMergeStory?: BoardStore["remediateMergeStory"];
+  } = {}
 ): BoardStore {
   const prReadiness =
     opts.prReadiness ??
@@ -72,7 +76,8 @@ function storeStub(
     getConfig: () => ({ maxParallel: 2 }),
     liveWorkerCount: () => 0,
     closeStory: () => {},
-    mergeStory: vi.fn(async () => board),
+    mergeStory: opts.mergeStory ?? vi.fn(async () => board),
+    remediateMergeStory: opts.remediateMergeStory ?? vi.fn(async () => board),
     prReadiness,
   } as unknown as BoardStore;
 }
@@ -154,5 +159,50 @@ describe("StoryDrawer review readiness", () => {
       expect(button.textContent).toContain("✓ Merge PR & clean worktree");
       expect(container.querySelector('[data-testid="pr-readiness-passing"]')).not.toBeNull();
     });
+  });
+
+  it("shows Fix with Composer only for remediable structured errors and wires it with busy/error behavior", async () => {
+    const story = reviewStory();
+    const readiness: PrReadiness = { mergeStateStatus: "CLEAN", failingChecks: [], pendingChecks: [] };
+    const mergeError = `ARC_ACTION_ERROR:${JSON.stringify({
+      code: "checks_failed",
+      title: "Checks failed",
+      detail: "CI failed",
+      actions: ["Fix checks", "Retry merge"],
+      retryable: true,
+    })}`;
+    let rejectFix!: (error: Error) => void;
+    const remediateMergeStory = vi.fn(
+      () => new Promise<Story>((_resolve, reject) => { rejectFix = reject; })
+    );
+    const mergeStory = vi.fn(async () => { throw new Error(mergeError); });
+    const store = storeStub(boardStory(story), readiness, { mergeStory, remediateMergeStory });
+
+    await act(async () => {
+      root.render(<StoryDrawer store={store} detail={detail(story)} />);
+    });
+    await waitFor(() => expect(container.querySelector(".btn--success")).not.toBeNull());
+
+    await act(async () => {
+      (container.querySelector(".btn--success") as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(container.textContent).toContain("Fix with Composer"));
+
+    const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry merge") as HTMLButtonElement;
+    await act(async () => { retry.click(); await Promise.resolve(); });
+    expect(mergeStory).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(container.textContent).toContain("Fix with Composer"));
+
+    const fix = [...container.querySelectorAll("button")].find((button) => button.textContent === "Fix with Composer") as HTMLButtonElement;
+    await act(async () => { fix.click(); });
+    expect(remediateMergeStory).toHaveBeenCalledWith(story.id, "checks_failed");
+    expect((container.querySelector(".btn--success") as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      rejectFix(new Error("Composer remediation failed"));
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(container.textContent).toContain("Composer remediation failed"));
   });
 });

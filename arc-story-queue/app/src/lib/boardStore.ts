@@ -847,6 +847,29 @@ export class BoardStore {
     return story;
   }
 
+  async remediateMergeStory(id: string, code: "checks_failed" | "branch_policy" | "behind_base" | "unknown"): Promise<Story> {
+    let actionError: unknown;
+    try {
+      const result = await this.sync.callRaw("story.remediateMerge", { id, code });
+      const response = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+      const text = response.content?.find((content) => content.type === "text")?.text;
+      if (response.isError) throw new Error(text ?? "Failed to remediate merge blockage");
+      const story = parseToolResult<Story>(result);
+      this.updateStoryAndDetail(story);
+      return story;
+    } catch (err) {
+      actionError = err;
+      throw err;
+    } finally {
+      try {
+        await Promise.all([this.refreshOpenDetail(id), this.loadQueue(), this.loadRuns()]);
+      } catch (refreshError) {
+        // A persisted handoff/run must not hide the action result that caused this refresh.
+        if (!actionError) throw refreshError;
+      }
+    }
+  }
+
   /**
    * Send an in-progress story to Review from the board ("implementation is done").
    * The daemon's story.review pushes the worktree branch and opens a real GitHub PR

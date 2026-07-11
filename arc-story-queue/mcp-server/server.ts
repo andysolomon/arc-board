@@ -19,6 +19,7 @@ import { SessionRegistry } from "./registry.js";
 import { SseHub } from "./sse.js";
 import { StoryStore } from "./store.js";
 import { deriveRepoId } from "./git-repo.js";
+import { mergeRemediationInputSchema, MergeRemediation } from "./merge-remediation.js";
 
 export interface DaemonOptions {
   port?: number;
@@ -158,11 +159,12 @@ function createSharedContext(opts: DaemonOptions) {
     { maxConcurrent: opts.plannerMaxParallel ?? 2 }
   );
   const fsRoot = opts.fsRoot ?? process.env.ARC_BOARD_FS_ROOT ?? homedir();
-  return { store, registry, sse, queue, lifecycle, intake, planner, fsRoot };
+  const remediation = new MergeRemediation(queue, store);
+  return { store, registry, sse, queue, lifecycle, intake, planner, remediation, fsRoot };
 }
 
 function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedContext>): void {
-  const { queue, lifecycle, intake, registry, store, sse, planner, fsRoot } = ctx;
+  const { queue, lifecycle, intake, registry, store, sse, planner, remediation, fsRoot } = ctx;
 
   server.registerTool(
     "session.register",
@@ -309,6 +311,16 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
       inputSchema: { id: z.string() },
     },
     async ({ id }) => lifecycleJsonResult(sse, await lifecycle.merge(id))
+  );
+
+  server.registerTool(
+    "story.remediateMerge",
+    {
+      title: "Remediate blocked story merge",
+      description: "Run a bounded composer/implement remediation in a reviewed story's preserved worktree without merging or changing lifecycle state.",
+      inputSchema: mergeRemediationInputSchema.shape,
+    },
+    async ({ id, code }) => jsonResult(await remediation.remediate(id, code))
   );
 
   server.registerTool(
