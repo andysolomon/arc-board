@@ -1,3 +1,10 @@
+# [1.30.0](https://github.com/andysolomon/arc-board/compare/v1.29.0...v1.30.0) (2026-07-11)
+
+
+### Features
+
+* keep Start visible but disabled while workers are live (W-000050) ([#131](https://github.com/andysolomon/arc-board/issues/131)) ([1d95009](https://github.com/andysolomon/arc-board/commit/1d95009ec90c8cd08055b2d6c036be6ae176ef9a)), closes [#110](https://github.com/andysolomon/arc-board/issues/110)
+
 # [1.29.0](https://github.com/andysolomon/arc-board/compare/v1.28.0...v1.29.0) (2026-07-11)
 
 
