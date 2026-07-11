@@ -520,11 +520,9 @@ function ReviewActions({
 
   const buttonLabel = busy
     ? (phaseLabel ?? "Syncing branch…")
-    : reviewBlocked
-      ? reviewBlocked
-      : gateWaiting
-        ? "Waiting for Merge Gate…"
-        : "✓ Merge PR & clean worktree";
+    : gateWaiting
+      ? "Waiting for Merge Gate…"
+      : "✓ Merge PR & clean worktree";
 
   return (
     <Section label="Review decision">
@@ -552,11 +550,11 @@ function ReviewActions({
             className="btn btn--secondary sq-action-row__button"
             data-testid="merge-override"
             busy={busy}
-            disabled={busy}
+            disabled={busy || readinessBlocked}
             loadingLabel={phaseLabel ?? "Syncing branch…"}
             onClick={() => run(() => store.mergeStory(story.id, { override: true }))}
           >
-            Override &amp; merge
+            Merge anyway (skips review only)
           </AsyncButton>
         )}
       </div>

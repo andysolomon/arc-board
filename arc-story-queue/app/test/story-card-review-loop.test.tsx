@@ -66,6 +66,24 @@ describe("StoryCard review loop indicator", () => {
     const indicator = container.querySelector('[data-testid="review-loop-indicator"]');
     expect(indicator).not.toBeNull();
     expect(indicator?.textContent).toBe("↻ 1/3");
+    expect(indicator?.getAttribute("aria-label")).toBe("review round 1 of 3");
+    expect(indicator?.getAttribute("title")).toBe("review round 1 of 3");
+  });
+
+  it("renders awaiting indicator for round zero", async () => {
+    const story = boardStory({
+      reviewLoop: { round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0 },
+    });
+
+    await act(async () => {
+      root.render(<StoryCard story={story} />);
+    });
+
+    const indicator = container.querySelector('[data-testid="review-loop-indicator"]');
+    expect(indicator).not.toBeNull();
+    expect(indicator?.textContent).toBe("↻ awaiting");
+    expect(indicator?.getAttribute("aria-label")).toBe("awaiting review");
+    expect(indicator?.getAttribute("title")).toBe("awaiting review");
   });
 
   it("omits loop indicator when reviewLoop verdict is approved", async () => {

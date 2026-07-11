@@ -52,12 +52,20 @@ export function StoryCard({
     story.type === "bug" ? `BUG${story.bug?.severity ? ` · ${story.bug.severity}` : ""}` : null;
   const terminalLine = lastLine ? formatTerminalLine(lastLine) : "dispatching…";
   const plan = story.column === "queued" ? planBadge(story) : null;
-  const reviewLoopIndicator =
-    story.column === "review" &&
-    story.reviewLoop &&
-    story.reviewLoop.verdict !== "approved"
-      ? `↻ ${story.reviewLoop.round}/${story.reviewLoop.maxRounds}`
+  const reviewLoop =
+    story.column === "review" && story.reviewLoop && story.reviewLoop.verdict !== "approved"
+      ? story.reviewLoop
       : null;
+  const reviewLoopIndicator = reviewLoop
+    ? reviewLoop.round === 0
+      ? "↻ awaiting"
+      : `↻ ${reviewLoop.round}/${reviewLoop.maxRounds}`
+    : null;
+  const reviewLoopA11yLabel = reviewLoop
+    ? reviewLoop.round === 0
+      ? "awaiting review"
+      : `review round ${reviewLoop.round} of ${reviewLoop.maxRounds}`
+    : null;
   const draggable = !!onPointerDragStart;
 
   return (
@@ -118,8 +126,13 @@ export function StoryCard({
                 {plan.label}
               </span>
             )}
-            {reviewLoopIndicator && (
-              <span className="story-card__review-loop" data-testid="review-loop-indicator">
+            {reviewLoopIndicator && reviewLoopA11yLabel && (
+              <span
+                className="story-card__review-loop"
+                data-testid="review-loop-indicator"
+                title={reviewLoopA11yLabel}
+                aria-label={reviewLoopA11yLabel}
+              >
                 {reviewLoopIndicator}
               </span>
             )}

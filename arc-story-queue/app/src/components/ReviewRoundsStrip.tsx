@@ -37,13 +37,13 @@ export function ReviewRoundsStrip({ story }: ReviewRoundsStripProps) {
       </div>
       <div className="sq-pr-readiness__chips">
         <span
-          className="sq-pr-readiness__chip sq-pr-readiness__chip--status sq-pr-readiness__chip--unknown"
+          className="sq-pr-readiness__chip sq-pr-readiness__chip--unknown"
           data-testid="review-rounds-round"
         >
           round {loop.round}/{loop.maxRounds}
         </span>
         <span
-          className={`sq-pr-readiness__chip sq-pr-readiness__chip--status ${verdictVariant(loop.verdict)}`}
+          className={`sq-pr-readiness__chip ${verdictVariant(loop.verdict)}`}
           data-testid="review-rounds-verdict"
         >
           {verdictLabel(loop.verdict)}
@@ -75,5 +75,8 @@ export function ReviewRoundsStrip({ story }: ReviewRoundsStripProps) {
 export function reviewLoopBlockReason(story: Story): string | null {
   const loop = story.reviewLoop;
   if (!loop || loop.verdict === "approved") return null;
+  if (loop.round === 0) {
+    return `awaiting review (0/${loop.maxRounds})`;
+  }
   return `review round ${loop.round}/${loop.maxRounds} — ${verdictLabel(loop.verdict)}`;
 }
