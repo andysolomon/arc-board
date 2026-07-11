@@ -125,6 +125,46 @@ Direct MCP equivalent:
 }
 ```
 
+## Ship the story
+
+`story.complete` lands the story in the `review` column with an open PR and a
+review loop initialized from the story's ship mode (`shipMode`, default `pr`):
+`reviewLoop = {round: 0, maxRounds: 3, verdict: "pending", blockingCount: 0}`.
+Acceptance is no longer granted at PR-open — an approved review round is what
+sets `annotation = accepted`.
+
+Run the review loop one round at a time (max `maxRounds`, default 3):
+
+1. Run `arc-pr-review-loop <PR#>` — the premium reviewer posts blocking and
+   nit comments on the PR.
+2. Workers fix the blocking findings in the story worktree. Workers stay
+   prohibited from commit/push/merge; the parent Fable session commits and
+   pushes each round's fixes.
+3. Record the round via `story.review_round`:
+   ```json
+   {
+     "id": "<story-id>",
+     "verdict": "changes_requested",
+     "blockingCount": 2,
+     "prCommentsUrl": "https://github.com/owner/repo/pull/123#pullrequestreview-1"
+   }
+   ```
+   `verdict` is `changes_requested` or `approved`; `approved` requires
+   `blockingCount` 0.
+4. On `approved`: call `story.merge` (squash merge). In `auto` ship mode the
+   daemon arms squash auto-merge at approval, so no `story.merge` call is
+   needed.
+5. If a further round is attempted after `maxRounds` rounds still requesting
+   changes, `story.review_round` fails with a structured `MaxRoundsExceeded`
+   error and the story is annotated `escalated`. Escalate to the operator:
+   merge with `story.merge {"override": true}` or send the story back to
+   `in_progress` for a larger fix.
+
+Ship modes: `pr` (default) opens the PR and runs this loop; `auto` runs the
+same loop with squash auto-merge armed on approval; `merge` squash-merges
+immediately after PR creation with no loop (readiness checks and merge
+remediation still apply).
+
 ## Failure / blocked path
 
 If the story cannot proceed, stream the reason with `story.update`, then either:
