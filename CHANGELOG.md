@@ -1,3 +1,10 @@
+# [1.29.0](https://github.com/andysolomon/arc-board/compare/v1.28.0...v1.29.0) (2026-07-11)
+
+
+### Features
+
+* guard board actions with shared async button pattern (W-000049) ([#130](https://github.com/andysolomon/arc-board/issues/130)) ([d2c830d](https://github.com/andysolomon/arc-board/commit/d2c830ddb8a4ea5d190ff05359dcf53c63139684)), closes [#109](https://github.com/andysolomon/arc-board/issues/109)
+
 # [1.28.0](https://github.com/andysolomon/arc-board/compare/v1.27.1...v1.28.0) (2026-07-10)
 
 
