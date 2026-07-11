@@ -546,10 +546,10 @@ const reviewLoopSchema: JsonSchema = {
   type: "object",
   required: ["round", "maxRounds", "verdict", "blockingCount"],
   properties: {
-    round: { type: "integer" },
-    maxRounds: { type: "integer" },
+    round: { type: "integer", minimum: 0 },
+    maxRounds: { type: "integer", minimum: 0 },
     verdict: { enum: ["pending", "changes_requested", "approved"] },
-    blockingCount: { type: "integer" },
+    blockingCount: { type: "integer", minimum: 0 },
   },
   allOf: [
     {
@@ -865,7 +865,9 @@ export function normalizeStory(
       : "shipMode" in value
         ? { shipMode: "pr" as ShipMode }
         : {}),
-    ...(value.reviewLoop && typeof value.reviewLoop === "object" ? { reviewLoop: value.reviewLoop as ReviewLoop } : {}),
+    ...(value.reviewLoop && typeof value.reviewLoop === "object" && !Array.isArray(value.reviewLoop)
+      ? { reviewLoop: value.reviewLoop as ReviewLoop }
+      : {}),
     ...(value.reviewLoop === null ? { reviewLoop: null } : {}),
   };
 }

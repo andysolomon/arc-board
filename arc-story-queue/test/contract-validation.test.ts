@@ -243,6 +243,21 @@ describe("arc-contracts schema fixtures", () => {
       )
     ).toThrow(/Invalid Story/);
   });
+
+  it("normalizes shipMode and reviewLoop shapes", () => {
+    const { shipMode: _shipMode, reviewLoop: _reviewLoop, ...legacy } = {
+      ...makeStory(),
+      shipMode: "pr" as const,
+      reviewLoop: null,
+    };
+    expect("shipMode" in normalizeStory(legacy)).toBe(false);
+    expect("reviewLoop" in normalizeStory(legacy)).toBe(false);
+    expect(normalizeStory({ ...makeStory(), shipMode: "yolo" }).shipMode).toBe("pr");
+    expect(normalizeStory({ ...makeStory(), reviewLoop: null }).reviewLoop).toBeNull();
+    const loop = { round: 1, maxRounds: 3, verdict: "pending" as const, blockingCount: 0 };
+    expect(normalizeStory({ ...makeStory(), reviewLoop: loop }).reviewLoop).toBe(loop);
+    expect("reviewLoop" in normalizeStory({ ...makeStory(), reviewLoop: [] })).toBe(false);
+  });
 });
 
 describe("contract validation at the MCP boundary", () => {
