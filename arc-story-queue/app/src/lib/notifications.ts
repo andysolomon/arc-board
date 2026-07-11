@@ -28,6 +28,12 @@ export interface AppNotification extends Toast {
   activity: ActivityMeta;
 }
 
+const ORCHESTRATION_BACKEND_LABEL: Record<NonNullable<StoryLifecycleEvent["backend"]>, string> = {
+  codex: "Codex CLI",
+  claude: "Claude Agent",
+  composer: "Cursor Agent",
+};
+
 export function defaultActivityMeta(kind: ToastKind, message: string): ActivityMeta {
   const icon: Record<ToastKind, string> = {
     info: "•",
@@ -37,18 +43,23 @@ export function defaultActivityMeta(kind: ToastKind, message: string): ActivityM
   return { icon: icon[kind], subject: message, text: "", tone: kind };
 }
 
-function lifecycleActivityLabel(evt: StoryLifecycleEvent): string {
+type LifecycleNotificationEvent = Omit<StoryLifecycleEvent, "type">;
+
+function lifecycleActivityLabel(evt: LifecycleNotificationEvent): string {
   const title = evt.title ?? evt.id;
   return evt.wid ? `${evt.wid} — “${title}”` : `“${title}”`;
 }
 
-export function lifecycleActivityMeta(evt: StoryLifecycleEvent): ActivityMeta {
+export function lifecycleActivityMeta(evt: LifecycleNotificationEvent): ActivityMeta {
   const label = lifecycleActivityLabel(evt);
+  const planningText = evt.backend
+    ? `retrying ${label} on ${ORCHESTRATION_BACKEND_LABEL[evt.backend]} after ${ORCHESTRATION_BACKEND_LABEL[evt.previousBackend ?? "codex"]} was unavailable`
+    : `analyzing ${label}`;
   const map: Record<LifecycleKind, ActivityMeta> = {
     queued: { icon: "➕", subject: "Queue", text: `queued ${label}`, tone: "queued" },
-    planning: { icon: "◌", subject: "Planner", text: `analyzing ${label}`, tone: "planning" },
+    planning: { icon: "◌", subject: "Planner", text: planningText, tone: "planning" },
     planned: { icon: "✓", subject: "Planner", text: `planned ${label}`, tone: "planned" },
-    "planning-failed": { icon: "!", subject: "Planner", text: `could not plan ${label}`, tone: "planning-failed" },
+    "planning-failed": { icon: "!", subject: "Planner", text: `could not plan ${label}${evt.error ? `: ${evt.error}` : ""}`, tone: "planning-failed" },
     started: { icon: "◈", subject: "Fable", text: `started ${label}`, tone: "started" },
     review: { icon: "◇", subject: "Fable", text: `moved ${label} to review`, tone: "review" },
     done: { icon: "✓", subject: "Fable", text: `completed ${label}`, tone: "done" },
@@ -73,13 +84,13 @@ export function formatMergeSuccessToast(pr?: string): string {
 }
 
 /** Toast copy for a coarse lifecycle event (SSE-driven board activity). */
-export function lifecycleToast(evt: StoryLifecycleEvent): { kind: ToastKind; msg: string } | undefined {
+export function lifecycleToast(evt: LifecycleNotificationEvent): { kind: ToastKind; msg: string } | undefined {
   const label = evt.wid ? `${evt.wid} — ${evt.title ?? evt.id}` : evt.title ?? evt.id;
   const map: Record<LifecycleKind, { kind: ToastKind; msg: string }> = {
     queued: { kind: "info", msg: `Queued ${label}` },
-    planning: { kind: "info", msg: `Planning ${label}` },
+    planning: { kind: "info", msg: evt.backend ? `Retrying ${label} on ${ORCHESTRATION_BACKEND_LABEL[evt.backend]}` : `Planning ${label}` },
     planned: { kind: "success", msg: `Plan ready: ${label}` },
-    "planning-failed": { kind: "error", msg: `Planning failed: ${label}` },
+    "planning-failed": { kind: "error", msg: `Planning failed: ${label}${evt.error ? `: ${evt.error}` : ""}` },
     started: { kind: "info", msg: `Started ${label}` },
     review: { kind: "success", msg: `Review ready: ${label}` },
     done: { kind: "success", msg: formatMergeSuccessToast(evt.pr) },

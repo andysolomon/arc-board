@@ -85,6 +85,10 @@ export interface StoryLifecycleEvent {
   title?: string;
   column?: string;
   pr?: string;
+  backend?: "codex" | "claude" | "composer";
+  previousBackend?: "codex" | "claude" | "composer";
+  attempt?: number;
+  error?: string;
 }
 
 export type BoardListener = (state: BoardState) => void;

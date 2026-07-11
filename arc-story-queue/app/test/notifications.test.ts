@@ -16,6 +16,16 @@ describe("notifications + toasts (store logic)", () => {
     expect(lifecycleToast(event)).toEqual({ kind: "success", msg: "Plan ready: W-000043 — Plan safely" });
   });
 
+  it("makes visible fallback retries backend-aware while the status remains planning, and preserves terminal errors", () => {
+    const retry = { kind: "planning" as const, id: "story-1", wid: "W-000043", title: "Plan safely", backend: "claude" as const, previousBackend: "codex" as const, attempt: 2 };
+    expect(lifecycleActivityMeta(retry)).toMatchObject({ subject: "Planner", tone: "planning", text: expect.stringContaining("Claude Agent") });
+    expect(lifecycleToast(retry)).toEqual({ kind: "info", msg: "Retrying W-000043 — Plan safely on Claude Agent" });
+
+    const failed = { kind: "planning-failed" as const, id: "story-1", wid: "W-000043", title: "Plan safely", error: "claude stderr" };
+    expect(lifecycleActivityMeta(failed).text).toContain("claude stderr");
+    expect(lifecycleToast(failed)).toEqual({ kind: "error", msg: "Planning failed: W-000043 — Plan safely: claude stderr" });
+  });
+
   it("notifies visibly when queue.next is waiting for orchestration plans", async () => {
     const sync = {
       call: vi.fn(async (tool: string) => {
