@@ -21,6 +21,7 @@ import { AsyncButton } from "./AsyncButton";
 import { MergeBlockedCallout } from "./MergeBlockedCallout";
 import { OrchestrationPlanSection } from "./OrchestrationPlanSection";
 import { PrReadinessStrip, usePrReadinessPoll } from "./PrReadinessStrip";
+import { ReviewRoundsStrip, reviewLoopBlockReason } from "./ReviewRoundsStrip";
 import { Markdown } from "./Markdown";
 import { useAsyncAction } from "../lib/useAsyncAction";
 
@@ -489,6 +490,7 @@ function ReviewSection({ store, story }: { store: BoardStore; story: Story }) {
   return (
     <>
       <PrReadinessStrip story={story} readiness={readiness} stale={stale} />
+      <ReviewRoundsStrip story={story} />
       <ReviewActions store={store} story={story} readiness={loaded ? readiness : null} />
     </>
   );
@@ -507,18 +509,22 @@ function ReviewActions({
   const phaseLabel = useMergePhase(busy);
   const structuredError = error ? parseBoardActionError(error) : null;
 
-  const gateBlocked =
+  const reviewBlocked = reviewLoopBlockReason(story);
+  const readinessBlocked =
     readiness != null &&
     (readiness.mergeStateStatus !== "CLEAN" ||
       readiness.failingChecks.length > 0 ||
       readiness.pendingChecks.length > 0);
+  const gateBlocked = reviewBlocked != null || readinessBlocked;
   const gateWaiting = readiness != null && readiness.pendingChecks.length > 0;
 
   const buttonLabel = busy
     ? (phaseLabel ?? "Syncing branch…")
-    : gateWaiting
-      ? "Waiting for Merge Gate…"
-      : "✓ Merge PR & clean worktree";
+    : reviewBlocked
+      ? reviewBlocked
+      : gateWaiting
+        ? "Waiting for Merge Gate…"
+        : "✓ Merge PR & clean worktree";
 
   return (
     <Section label="Review decision">
@@ -530,7 +536,9 @@ function ReviewActions({
           loadingLabel={buttonLabel}
           onClick={() => run(() => store.mergeStory(story.id))}
         >
-          {!busy && gateWaiting ? (
+          {!busy && reviewBlocked ? (
+            reviewBlocked
+          ) : !busy && gateWaiting ? (
             <>
               <span className="sq-merge-phase__spinner" aria-hidden />
               Waiting for Merge Gate…
@@ -539,6 +547,18 @@ function ReviewActions({
             "✓ Merge PR & clean worktree"
           )}
         </AsyncButton>
+        {reviewBlocked && (
+          <AsyncButton
+            className="btn btn--secondary sq-action-row__button"
+            data-testid="merge-override"
+            busy={busy}
+            disabled={busy}
+            loadingLabel={phaseLabel ?? "Syncing branch…"}
+            onClick={() => run(() => store.mergeStory(story.id, { override: true }))}
+          >
+            Override &amp; merge
+          </AsyncButton>
+        )}
       </div>
       {busy && phaseLabel && (
         <p className="sq-merge-phase" aria-live="polite">

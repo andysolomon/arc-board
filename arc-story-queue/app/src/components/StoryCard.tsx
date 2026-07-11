@@ -52,6 +52,12 @@ export function StoryCard({
     story.type === "bug" ? `BUG${story.bug?.severity ? ` · ${story.bug.severity}` : ""}` : null;
   const terminalLine = lastLine ? formatTerminalLine(lastLine) : "dispatching…";
   const plan = story.column === "queued" ? planBadge(story) : null;
+  const reviewLoopIndicator =
+    story.column === "review" &&
+    story.reviewLoop &&
+    story.reviewLoop.verdict !== "approved"
+      ? `↻ ${story.reviewLoop.round}/${story.reviewLoop.maxRounds}`
+      : null;
   const draggable = !!onPointerDragStart;
 
   return (
@@ -110,6 +116,11 @@ export function StoryCard({
             {plan && (
               <span className={`story-card__plan story-card__plan--${plan.slug}`}>
                 {plan.label}
+              </span>
+            )}
+            {reviewLoopIndicator && (
+              <span className="story-card__review-loop" data-testid="review-loop-indicator">
+                {reviewLoopIndicator}
               </span>
             )}
           </div>
