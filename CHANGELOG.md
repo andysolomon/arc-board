@@ -1,3 +1,10 @@
+# [1.33.0](https://github.com/andysolomon/arc-board/compare/v1.32.0...v1.33.0) (2026-07-11)
+
+
+### Features
+
+* show PR readiness strip before merge in review drawer (W-000054) ([#134](https://github.com/andysolomon/arc-board/issues/134)) ([5d9e379](https://github.com/andysolomon/arc-board/commit/5d9e379d8ffc00865c5427b7688ceada9038e65c)), closes [#114](https://github.com/andysolomon/arc-board/issues/114)
+
 # [1.32.0](https://github.com/andysolomon/arc-board/compare/v1.31.0...v1.32.0) (2026-07-11)
 
 
