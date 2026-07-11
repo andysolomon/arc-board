@@ -35,7 +35,7 @@ The working UI prototype (`Story Queue.dc.html`) is the source of truth for layo
 
 ## Story lifecycle
 
-Columns: **Backlog** → **Queued** → **In Progress** → **Review** → **Done**. After a worker handoff (`story.complete`) or board send (`story.review`), the story lands in **Review** with an open PR and an initialized review loop (`round: 0`, `maxRounds: 3`, `verdict: pending`). Fable runs up to `maxRounds` of `story.review_round` (blocking fixes between rounds); an **approved** round sets `annotation = accepted` and unlocks `story.merge` (squash). In **`auto`** ship mode the daemon arms squash auto-merge on approval instead of requiring an explicit merge call. **`merge`** ship mode skips the loop and squash-merges immediately after PR creation. See `docs/INTEGRATION.md` for ship-mode and gate details.
+Columns: **Backlog** → **Queued** → **In Progress** → **Review** → **Done**. After a worker handoff (`story.complete`) or board send (`story.review`), the story lands in **Review** with an open PR and an initialized review loop (`round: 0`, `maxRounds: 3`, `verdict: pending`). Fable runs up to `maxRounds` of `story.review_round` (blocking fixes between rounds); an **approved** round sets `annotation = accepted` and unlocks `story.merge` (squash). In **`auto`** ship mode the daemon additionally arms squash auto-merge on approval (`story.merge` stays available as a fallback). **`merge`** ship mode skips the loop and squash-merges immediately after PR creation. See `docs/INTEGRATION.md` for ship-mode and gate details.
 
 ```mermaid
 flowchart LR
