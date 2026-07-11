@@ -203,6 +203,61 @@ describe("arc-contracts schema fixtures", () => {
     });
     expect(normalizeStory({ ...makeStory(), orchestration: preserved }).orchestration).toBe(preserved);
   });
+
+  it("accepts a story with shipMode and reviewLoop", () => {
+    expect(
+      validateStory(
+        makeStory({
+          shipMode: "auto",
+          reviewLoop: { round: 1, maxRounds: 3, verdict: "pending", blockingCount: 2 },
+        })
+      )
+    ).toBe(true);
+  });
+
+  it("accepts legacy stories without shipMode or reviewLoop", () => {
+    const { shipMode: _shipMode, reviewLoop: _reviewLoop, ...legacyStory } = makeStory({
+      shipMode: "pr",
+      reviewLoop: { round: 0, maxRounds: 1, verdict: "pending", blockingCount: 0 },
+    });
+
+    expect(validateStory(legacyStory)).toBe(true);
+  });
+
+  it("rejects reviewLoop with an unknown verdict", () => {
+    expect(() =>
+      validateStory(
+        makeStory({
+          reviewLoop: { round: 1, maxRounds: 3, verdict: "rejected" as "pending", blockingCount: 0 },
+        })
+      )
+    ).toThrow(/Invalid Story/);
+  });
+
+  it("rejects approved reviewLoop with blockingCount greater than zero", () => {
+    expect(() =>
+      validateStory(
+        makeStory({
+          reviewLoop: { round: 2, maxRounds: 3, verdict: "approved", blockingCount: 2 },
+        })
+      )
+    ).toThrow(/Invalid Story/);
+  });
+
+  it("normalizes shipMode and reviewLoop shapes", () => {
+    const { shipMode: _shipMode, reviewLoop: _reviewLoop, ...legacy } = {
+      ...makeStory(),
+      shipMode: "pr" as const,
+      reviewLoop: null,
+    };
+    expect("shipMode" in normalizeStory(legacy)).toBe(false);
+    expect("reviewLoop" in normalizeStory(legacy)).toBe(false);
+    expect(normalizeStory({ ...makeStory(), shipMode: "yolo" }).shipMode).toBe("pr");
+    expect(normalizeStory({ ...makeStory(), reviewLoop: null }).reviewLoop).toBeNull();
+    const loop = { round: 1, maxRounds: 3, verdict: "pending" as const, blockingCount: 0 };
+    expect(normalizeStory({ ...makeStory(), reviewLoop: loop }).reviewLoop).toBe(loop);
+    expect("reviewLoop" in normalizeStory({ ...makeStory(), reviewLoop: [] })).toBe(false);
+  });
 });
 
 describe("contract validation at the MCP boundary", () => {
