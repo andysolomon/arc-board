@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Story } from "arc-contracts";
 import {
   extractOrchestrationAnalysis,
+  parseOrchestratorRouteProfile,
   orchestratorAnalyzeArgs,
   parseOrchestratorStdout,
   resolveAnalysisFallbacks,
@@ -51,12 +52,26 @@ function recommendation(rationale = "Read the repo first."): AnalysisResult {
   return { analysis: { route: "codex-implement", backend: "codex", mode: "implement", rationale, complexity: "low" } };
 }
 
+const UPSTREAM_TASK_CLASS_VARIANTS = [
+  { task_class: "taste-sensitive", case_sensitive: false, trim_whitespace: true, model: "gpt-5-codex-high" },
+  { task_class: "ui", case_sensitive: false, trim_whitespace: true, model: "gpt-5-codex" },
+  { task_class: "copy", case_sensitive: false, trim_whitespace: true, model: "gpt-5-codex" },
+  { task_class: "api-design", case_sensitive: false, trim_whitespace: true, model: "gpt-5-codex-high" },
+];
+
+function routeProfile(): string {
+  return JSON.stringify({ schema_version: 1, source: "fable-orchestrator", routes: [
+    ["codex-explore", "codex", "analyze", "read-only", "Codex explore"], ["codex-implement", "codex", "implement", "workspace-write", "Codex implement"], ["codex-check", "codex", "review", "read-only", "Codex check"],
+    ["composer-implement", "composer", "implement", "workspace-write", "Composer implement"], ["opus-explore", "claude", "analyze", "read-only", "Claude explore"], ["opus-implement", "claude", "implement", "workspace-write", "Claude implement"], ["opus-check", "claude", "review", "read-only", "Claude check"],
+  ].map(([id, backend, mode, sandbox, guidance]) => ({ id, backend, mode, sandbox, guidance, model: "test", ...(id === "codex-implement" || id === "codex-check" ? { task_class_variants: UPSTREAM_TASK_CLASS_VARIANTS } : {}) })) });
+}
+
 function backendChainBin(directory: string, output: string, exhaustComposer = false): string {
   const bin = join(directory, "backend-chain");
-  const summary = JSON.stringify({ route: "composer-implement", backend: "composer", mode: "implement", rationale: "Composer fallback analysis.", complexity: "low" });
+  const summary = JSON.stringify({ route: "composer-implement", backend: "composer", mode: "implement", rationale: "[profile:fable-orchestrator@1 route=composer-implement] Composer implement", complexity: "low" });
   const result = JSON.stringify({ status: "completed", summary, changes: [], verification: [], risks: [], next_actions: [] });
   writeFileSync(bin, [
-    "#!/bin/sh", "backend=\"\"", "mode=\"\"", "while [ \"$#\" -gt 0 ]; do",
+    "#!/bin/sh", `if [ "$1" = routes ]; then printf '%s\\n' '${routeProfile()}'; exit 0; fi`, "backend=\"\"", "mode=\"\"", "while [ \"$#\" -gt 0 ]; do",
     "  case \"$1\" in", "    --backend) backend=\"$2\"; shift 2 ;;", "    --mode) mode=\"$2\"; shift 2 ;;", "    *) shift ;;", "  esac", "done",
     `printf '%s/%s\\n' \"$backend\" \"$mode\" >> '${output}'`, "case \"$backend\" in",
     "  codex) printf '%s\\n' '{\"failure_class\":\"backend_unavailable\",\"outage_reason\":\"usage_limit\"}' >&2; exit 7 ;;",
@@ -75,11 +90,11 @@ function successfulAnalyzeBin(directory: string, output: string): string {
     route: "codex-implement",
     backend: "codex",
     mode: "implement",
-    rationale: "codex analysis completed.",
+    rationale: "[profile:fable-orchestrator@1 route=codex-implement] Codex implement",
     complexity: "low",
   });
   const result = JSON.stringify({ status: "completed", summary, changes: [], verification: [], risks: [], next_actions: [] });
-  writeFileSync(bin, ["#!/bin/sh", `printf '%s\\n' \"$@\" > '${output}'`, `printf '%s\\n' '${result}'`].join("\n"));
+  writeFileSync(bin, ["#!/bin/sh", `if [ "$1" = routes ]; then printf '%s\\n' '${routeProfile()}'; exit 0; fi`, `printf '%s\\n' \"$@\" > '${output}'`, `printf '%s\\n' '${result}'`].join("\n"));
   chmodSync(bin, 0o755);
   return bin;
 }
@@ -87,11 +102,11 @@ function successfulAnalyzeBin(directory: string, output: string): string {
 function builtInClaudeFallbackBin(directory: string, output: string): string {
   const bin = join(directory, "built-in-claude-fallback");
   const summary = JSON.stringify({
-    route: "opus-implement", backend: "claude", mode: "implement", rationale: "Claude recovered.", complexity: "low",
+    route: "opus-implement", backend: "claude", mode: "implement", rationale: "[profile:fable-orchestrator@1 route=opus-implement] Claude implement", complexity: "low",
   });
   const result = JSON.stringify({ status: "completed", summary, changes: [], verification: [], risks: [], next_actions: [] });
   writeFileSync(bin, [
-    "#!/bin/sh",
+    "#!/bin/sh", `if [ "$1" = routes ]; then printf '%s\\n' '${routeProfile()}'; exit 0; fi`,
     `printf '%s\\n' \"$@\" > '${output}'`,
     "printf '%s\\n' 'fable-orchestrator: codex unavailable (malformed); retrying on claude backend extra' >&2",
     "printf '%s' 'fable-orchestrator: codex unavailable (usage' >&2",
@@ -108,11 +123,11 @@ function builtInClaudeFallbackBin(directory: string, output: string): string {
 function builtInClaudeFallbackAtEofBin(directory: string): string {
   const bin = join(directory, "built-in-claude-fallback-eof");
   const summary = JSON.stringify({
-    route: "opus-implement", backend: "claude", mode: "implement", rationale: "Claude recovered.", complexity: "low",
+    route: "opus-implement", backend: "claude", mode: "implement", rationale: "[profile:fable-orchestrator@1 route=opus-implement] Claude implement", complexity: "low",
   });
   const result = JSON.stringify({ status: "completed", summary, changes: [], verification: [], risks: [], next_actions: [] });
   writeFileSync(bin, [
-    "#!/bin/sh",
+    "#!/bin/sh", `if [ "$1" = routes ]; then printf '%s\\n' '${routeProfile()}'; exit 0; fi`,
     "printf '%s\\n' 'fable-orchestrator: codex unavailable (malformed); retrying on claude backend extra' >&2",
     "printf '%s' 'fable-orchestrator: codex unavailable (usage' >&2",
     "sleep 0.02",
@@ -126,11 +141,11 @@ function builtInClaudeFallbackAtEofBin(directory: string): string {
 function composerWrongPlanBin(directory: string): string {
   const bin = join(directory, "composer-wrong-plan");
   const summary = JSON.stringify({
-    route: "codex-implement", backend: "codex", mode: "implement", rationale: "A valid but wrong identity.", complexity: "low",
+    route: "codex-implement", backend: "codex", mode: "implement", rationale: "[profile:fable-orchestrator@1 route=codex-implement] Codex implement", complexity: "low",
   });
   const result = JSON.stringify({ status: "completed", summary, changes: [], verification: [], risks: [], next_actions: [] });
   writeFileSync(bin, [
-    "#!/bin/sh", "backend=\"\"", "while [ \"$#\" -gt 0 ]; do",
+    "#!/bin/sh", `if [ "$1" = routes ]; then printf '%s\\n' '${routeProfile()}'; exit 0; fi`, "backend=\"\"", "while [ \"$#\" -gt 0 ]; do",
     "  case \"$1\" in", "    --backend) backend=\"$2\"; shift 2 ;;", "    *) shift ;;", "  esac", "done",
     "if [ \"$backend\" = codex ]; then printf '%s\\n' '{\"failure_class\":\"backend_unavailable\"}' >&2; exit 7; fi",
     `printf '%s\\n' '${result}'`,
@@ -178,6 +193,38 @@ describe("orchestrator analysis protocol", () => {
     expect(() => parseOrchestratorStdout("not json")).toThrow(/invalid JSON/);
   });
 
+  it("rejects malformed, incompatible, unknown, and partial returned profiles before any guidance can be used", () => {
+    const valid = JSON.parse(routeProfile());
+    const parsed = parseOrchestratorRouteProfile(routeProfile());
+    expect(parsed.routes).toHaveLength(7);
+    expect(parsed.routes.find((route) => route.id === "codex-implement")?.taskClassVariants?.map((variant) => variant.task_class))
+      .toEqual(["taste-sensitive", "ui", "copy", "api-design"]);
+    expect(parsed.routes.find((route) => route.id === "codex-check")?.taskClassVariants?.map((variant) => variant.model))
+      .toEqual(["gpt-5-codex-high", "gpt-5-codex", "gpt-5-codex", "gpt-5-codex-high"]);
+    expect(() => parseOrchestratorRouteProfile("bad json")).toThrow(/invalid JSON/);
+    expect(() => parseOrchestratorRouteProfile(JSON.stringify({ ...valid, schema_version: 2 }))).toThrow(/schema_version/);
+    expect(() => parseOrchestratorRouteProfile(JSON.stringify({ ...valid, source: "other" }))).toThrow(/source/);
+    expect(() => parseOrchestratorRouteProfile(JSON.stringify({ ...valid, routes: [{ ...valid.routes[0], id: "unknown" }] }))).toThrow(/unknown route/);
+    expect(() => parseOrchestratorRouteProfile(JSON.stringify({ ...valid, routes: [{ ...valid.routes[1], backend: "claude", mode: "implement" }] }))).toThrow(/backend\/mode/);
+    expect(() => parseOrchestratorRouteProfile(JSON.stringify({ ...valid, routes: [{ ...valid.routes[1], sandbox: "read-only" }] }))).toThrow(/sandbox/);
+    expect(() => parseOrchestratorRouteProfile(JSON.stringify({ ...valid, routes: [valid.routes[0]] }))).toThrow(/complete executable/);
+  });
+
+  it("rejects malformed task_class_variants: wrong types, unknown keys, and duplicates", () => {
+    const valid = JSON.parse(routeProfile());
+    const withVariant = (variant: Record<string, unknown>) =>
+      JSON.stringify({ ...valid, routes: [{ ...valid.routes[1], task_class_variants: [variant] }] });
+    // The exact upstream key set parses cleanly (narrow unknown-key acceptance check).
+    expect(() => parseOrchestratorRouteProfile(withVariant({ task_class: "ui", case_sensitive: false, trim_whitespace: true, model: "m" }))).toThrow(/complete executable/);
+    expect(() => parseOrchestratorRouteProfile(withVariant({ task_class: "ui", case_sensitive: "yes", trim_whitespace: true, model: "m" }))).toThrow(/case_sensitive/);
+    expect(() => parseOrchestratorRouteProfile(withVariant({ task_class: "", case_sensitive: false, trim_whitespace: true, model: "m" }))).toThrow(/task_class/);
+    expect(() => parseOrchestratorRouteProfile(withVariant({ task_class: "ui", case_sensitive: false, trim_whitespace: true, model: "m", extra: 1 }))).toThrow(/unknown key/);
+    expect(() => parseOrchestratorRouteProfile(JSON.stringify({ ...valid, routes: [{ ...valid.routes[1], task_class_variants: [
+      { task_class: "ui", case_sensitive: false, trim_whitespace: true, model: "m" },
+      { task_class: "UI", case_sensitive: false, trim_whitespace: true, model: "m" },
+    ] }] }))).toThrow(/duplicates task_class/);
+  });
+
   it("surfaces an orchestrator process failure without accepting a plan", async () => {
     const directory = mkdtempSync(join(tmpdir(), "arc-planner-executor-"));
     const bin = join(directory, "failing-orchestrator");
@@ -198,6 +245,21 @@ describe("orchestrator analysis protocol", () => {
     const controller = new AbortController();
     try {
       const running = runOrchestratorPhase(story(), "codex", "analyze", { bin, cwd: directory, signal: controller.signal });
+      controller.abort();
+      await expect(running).rejects.toMatchObject({ name: "AbortError" });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("passes cancellation through to the profile command before analysis starts", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "arc-planner-profile-abort-"));
+    const bin = join(directory, "waiting-profile");
+    writeFileSync(bin, "#!/bin/sh\nsleep 30\n");
+    chmodSync(bin, 0o755);
+    const controller = new AbortController();
+    try {
+      const running = runOrchestrationAnalysis(story(), directory, { bin, signal: controller.signal });
       controller.abort();
       await expect(running).rejects.toMatchObject({ name: "AbortError" });
     } finally {
@@ -252,6 +314,37 @@ describe("orchestrator analysis protocol", () => {
       expect(onFallback).not.toHaveBeenCalled();
       expect(readFileSync(command, "utf8")).toContain("--backend\ncodex\n--mode\nanalyze");
       expect(readFileSync(command, "utf8")).toContain("--fallback\nclaude");
+      expect(readFileSync(command, "utf8")).toContain("Codex implement");
+      expect(readFileSync(command, "utf8")).toContain("profile:fable-orchestrator@1");
+      expect(readFileSync(command, "utf8")).toContain("task_class_variants=taste-sensitive=>gpt-5-codex-high");
+      expect(readFileSync(command, "utf8")).toContain("api-design=>gpt-5-codex-high (case_sensitive=false, trim_whitespace=true)");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("treats an unrecognized nonzero routes-command failure as fatal rather than falling back", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "arc-planner-routes-error-"));
+    const bin = join(directory, "erroring-routes");
+    writeFileSync(bin, ["#!/bin/sh", "if [ \"$1\" = routes ]; then echo 'fable-orchestrator: internal routing failure' >&2; exit 3; fi", "exit 0"].join("\n"));
+    chmodSync(bin, 0o755);
+    try {
+      await expect(runOrchestrationAnalysis(story(), directory, { bin })).rejects.toThrow(/exited with code 3/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("uses built-in guidance only when an older runner rejects routes, and makes fallback provenance mandatory", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "arc-planner-old-profile-"));
+    const bin = join(directory, "old-orchestrator");
+    const summary = JSON.stringify({ route: "codex-implement", backend: "codex", mode: "implement", rationale: "[built-in-routes fallback=profile-command-unavailable route=codex-implement] Hard implementation / escalation", complexity: "low" });
+    const result = JSON.stringify({ status: "completed", summary, changes: [], verification: [], risks: [], next_actions: [] });
+    writeFileSync(bin, ["#!/bin/sh", "if [ \"$1\" = routes ]; then echo 'fable-orchestrator: expected the run command' >&2; exit 2; fi", `printf '%s\\n' '${result}'`].join("\n"));
+    chmodSync(bin, 0o755);
+    try {
+      const outcome = await runOrchestrationAnalysis(story(), directory, { bin });
+      expect(outcome.analysis.rationale).toContain("built-in-routes fallback=profile-command-unavailable");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -363,6 +456,28 @@ describe("PlannerWorker", () => {
     await waitFor(() => store.getStory(bad.id)?.orchestration?.status === "failed" && store.getStory(good.id)?.orchestration?.status === "planned");
     expect(store.getStory(bad.id)?.orchestration).toMatchObject({ status: "failed", error: "model unavailable" });
     expect(events.mock.calls.map(([evt]) => evt).find((evt) => evt.kind === "planning-failed")).toMatchObject({ error: "model unavailable" });
+  });
+
+  it("surfaces an invalid profile as planning-failed and never invokes analysis", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "arc-planner-profile-failure-"));
+    const bin = join(directory, "bad-profile");
+    const calls = join(directory, "calls");
+    writeFileSync(bin, ["#!/bin/sh", `printf '%s\\n' \"$1\" >> '${calls}'`, "if [ \"$1\" = routes ]; then echo '{bad'; exit 0; fi", "exit 9"].join("\n"));
+    chmodSync(bin, 0o755);
+    const analyze = (item: Story, path: string, opts: { signal: AbortSignal }) => runOrchestrationAnalysis(item, path, { bin, ...opts });
+    const { store, planner, sse } = setup(analyze, 2, directory);
+    const item = story();
+    store.upsertStory(item); store.enqueue(item.id);
+    const events = vi.spyOn(sse, "emitEvent");
+    try {
+      planner.start();
+      await waitFor(() => store.getStory(item.id)?.orchestration?.status === "failed");
+      expect(events.mock.calls.map(([entry]) => entry.kind)).toContain("planning-failed");
+      expect(readFileSync(calls, "utf8").trim()).toBe("routes");
+    } finally {
+      await planner.stop();
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("preserves a bounded final backend diagnostic in failed planning state and activity", async () => {

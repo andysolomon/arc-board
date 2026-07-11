@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   isRouteId,
+  routeMeta,
   routeAccess,
   routeModel,
   routeNeedsWriteLock,
@@ -33,6 +34,32 @@ export interface OrchestrationAnalysis {
   rationale: string;
   complexity: string;
 }
+
+type OrchestratorSandbox = "read-only" | "workspace-write";
+/** Upstream `task_class_variants` record; retains the matching semantics verbatim. */
+export interface OrchestratorTaskClassVariant {
+  task_class: string;
+  case_sensitive: boolean;
+  trim_whitespace: boolean;
+  model: string;
+}
+export interface OrchestratorRouteCapability {
+  id: RouteId;
+  backend: OrchestratorBackend;
+  mode: OrchestratorMode;
+  model: string;
+  sandbox: OrchestratorSandbox;
+  guidance: string;
+  taskClassVariants?: OrchestratorTaskClassVariant[];
+}
+export interface OrchestratorRouteProfile {
+  schema_version: 1;
+  source: "fable-orchestrator";
+  routes: OrchestratorRouteCapability[];
+}
+export type AnalysisCapabilityGuidance =
+  | { kind: "profile"; profile: OrchestratorRouteProfile }
+  | { kind: "built-in"; fallbackReason: "profile-command-unavailable" };
 
 export interface OrchestratorTraceRecord {
   run_id: string;
@@ -108,6 +135,135 @@ export function orchestratorRoute(backend: OrchestratorBackend, mode: Orchestrat
   };
   const route = routes[`${backend}:${mode}`];
   return route && isRouteId(route) ? route : "composer-implement";
+}
+
+const PROFILE_EXECUTABLE_ROUTES: Readonly<Record<`${OrchestratorBackend}:${OrchestratorMode}`, RouteId | undefined>> = {
+  "composer:analyze": undefined, "composer:implement": "composer-implement", "composer:review": undefined,
+  "codex:analyze": "codex-explore", "codex:implement": "codex-implement", "codex:review": "codex-check",
+  "claude:analyze": "opus-explore", "claude:implement": "opus-implement", "claude:review": "opus-check",
+};
+
+function profileRouteFor(backend: OrchestratorBackend, mode: OrchestratorMode): RouteId | null {
+  return PROFILE_EXECUTABLE_ROUTES[`${backend}:${mode}`] ?? null;
+}
+
+function requiredProfileText(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Invalid orchestrator route profile: ${field} must be a non-empty string`);
+  return value.trim();
+}
+
+function routeSandbox(route: RouteId): OrchestratorSandbox | null {
+  const access = routeMeta(route)?.access;
+  return access === "read-only" ? "read-only" : access === "write" ? "workspace-write" : null;
+}
+
+const TASK_CLASS_VARIANT_KEYS = ["task_class", "case_sensitive", "trim_whitespace", "model"] as const;
+
+function requiredProfileBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`Invalid orchestrator route profile: ${field} must be a boolean`);
+  return value;
+}
+
+/** Strictly consume upstream `task_class_variants`, preserving case/trim matching config. */
+function parseTaskClassVariants(value: unknown, index: number): OrchestratorTaskClassVariant[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error(`Invalid orchestrator route profile: routes[${index}].task_class_variants must be an array`);
+  const seen = new Set<string>();
+  return value.map((entry, variantIndex): OrchestratorTaskClassVariant => {
+    const field = `routes[${index}].task_class_variants[${variantIndex}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error(`Invalid orchestrator route profile: ${field} must be an object`);
+    const variant = entry as Record<string, unknown>;
+    for (const key of Object.keys(variant)) {
+      if (!(TASK_CLASS_VARIANT_KEYS as readonly string[]).includes(key)) throw new Error(`Invalid orchestrator route profile: ${field} has unknown key ${JSON.stringify(key)}`);
+    }
+    const taskClass = requiredProfileText(variant.task_class, `${field}.task_class`);
+    const caseSensitive = requiredProfileBoolean(variant.case_sensitive, `${field}.case_sensitive`);
+    const trimWhitespace = requiredProfileBoolean(variant.trim_whitespace, `${field}.trim_whitespace`);
+    const model = requiredProfileText(variant.model, `${field}.model`);
+    const normalized = trimWhitespace ? taskClass.trim() : taskClass;
+    const key = caseSensitive ? normalized : normalized.toLowerCase();
+    if (seen.has(key)) throw new Error(`Invalid orchestrator route profile: ${field} duplicates task_class ${JSON.stringify(taskClass)}`);
+    seen.add(key);
+    return { task_class: taskClass, case_sensitive: caseSensitive, trim_whitespace: trimWhitespace, model };
+  });
+}
+
+/** Human-readable variant guidance for the planner analysis contract. */
+function renderTaskClassVariants(variants?: OrchestratorTaskClassVariant[]): string {
+  if (!variants?.length) return "none";
+  return variants.map((variant) => `${variant.task_class}=>${variant.model} (case_sensitive=${variant.case_sensitive}, trim_whitespace=${variant.trim_whitespace})`).join(", ");
+}
+
+/** Validate all upstream records up front; never use a valid prefix of a profile. */
+export function parseOrchestratorRouteProfile(stdout: string): OrchestratorRouteProfile {
+  let raw: unknown;
+  try { raw = JSON.parse(stdout.trim()); } catch { throw new Error("Invalid orchestrator route profile: routes --json produced invalid JSON"); }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid orchestrator route profile: expected an object");
+  const profile = raw as Record<string, unknown>;
+  if (profile.schema_version !== 1) throw new Error(`Unsupported orchestrator route profile schema_version: ${JSON.stringify(profile.schema_version)}`);
+  if (profile.source !== "fable-orchestrator") throw new Error(`Unsupported orchestrator route profile source: ${JSON.stringify(profile.source)}`);
+  if (!Array.isArray(profile.routes) || !profile.routes.length) throw new Error("Invalid orchestrator route profile: routes must be a non-empty array");
+  const routes = profile.routes.map((item, index): OrchestratorRouteCapability => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`Invalid orchestrator route profile: routes[${index}] must be an object`);
+    const route = item as Record<string, unknown>;
+    const id = requiredProfileText(route.id, `routes[${index}].id`);
+    if (!isRouteId(id)) throw new Error(`Invalid orchestrator route profile: routes[${index}] has unknown route id ${JSON.stringify(id)}`);
+    const backend = requiredProfileText(route.backend, `routes[${index}].backend`);
+    const mode = requiredProfileText(route.mode, `routes[${index}].mode`);
+    if (!isOrchestratorBackend(backend) || !isOrchestratorMode(mode) || profileRouteFor(backend, mode) !== id) {
+      throw new Error(`Invalid orchestrator route profile: routes[${index}] conflicts with executable backend/mode mapping`);
+    }
+    const sandbox = requiredProfileText(route.sandbox, `routes[${index}].sandbox`);
+    if ((sandbox !== "read-only" && sandbox !== "workspace-write") || routeSandbox(id) !== sandbox) {
+      throw new Error(`Invalid orchestrator route profile: routes[${index}] sandbox conflicts with registered route access`);
+    }
+    const taskClassVariants = parseTaskClassVariants(route.task_class_variants, index);
+    return { id, backend, mode, sandbox, model: requiredProfileText(route.model, `routes[${index}].model`), guidance: requiredProfileText(route.guidance, `routes[${index}].guidance`), taskClassVariants };
+  });
+  const expected = Object.values(PROFILE_EXECUTABLE_ROUTES).filter((route): route is RouteId => Boolean(route));
+  if (new Set(routes.map((route) => route.id)).size !== routes.length || routes.length !== expected.length || expected.some((id) => !routes.some((route) => route.id === id))) {
+    throw new Error("Invalid orchestrator route profile: profile does not contain the complete executable route catalog");
+  }
+  return { schema_version: 1, source: "fable-orchestrator", routes };
+}
+
+class ProfileCommandUnavailableError extends Error {}
+
+export async function resolveAnalysisCapabilityGuidance(bin: string, signal?: AbortSignal): Promise<AnalysisCapabilityGuidance> {
+  try {
+    const profile = await new Promise<OrchestratorRouteProfile>((resolve, reject) => {
+    const child = spawn(bin, ["routes", "--json"], { signal, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = ""; let stderr = "";
+    child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => { stdout += chunk; });
+    child.stderr.on("data", (chunk: string) => { stderr = (stderr + chunk).slice(-12_000); });
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.name === "AbortError" || error.code === "ABORT_ERR") return reject(error);
+      if (error.code === "ENOENT") return reject(new ProfileCommandUnavailableError("orchestrator route profile command is unavailable"));
+      reject(error);
+    });
+    child.on("close", (code) => {
+      if (code !== 0) {
+        if (/expected the run command|(?:unknown|unrecognized|invalid) (?:command|subcommand)|unknown option/i.test(stderr)) return reject(new ProfileCommandUnavailableError("orchestrator route profile command is unsupported by this runner"));
+        return reject(new Error(`orchestrator route profile command exited with code ${code}: ${stderr.trim() || "no stderr"}`));
+      }
+      try { resolve(parseOrchestratorRouteProfile(stdout)); } catch (error) { reject(error); }
+    });
+    });
+    return { kind: "profile", profile };
+  } catch (error) {
+    if (error instanceof ProfileCommandUnavailableError) return { kind: "built-in", fallbackReason: "profile-command-unavailable" };
+    throw error;
+  }
+}
+
+function guidanceForRoute(guidance: AnalysisCapabilityGuidance, route: RouteId): string {
+  if (guidance.kind === "profile") {
+    const capability = guidance.profile.routes.find((candidate) => candidate.id === route);
+    if (!capability) throw new Error(`Invalid orchestration analysis: route ${JSON.stringify(route)} is absent from the validated route profile`);
+    return capability.guidance;
+  }
+  return routeMeta(route)?.use ?? "registered built-in route metadata";
 }
 
 const DEFAULT_BACKEND: OrchestratorBackend = "composer";
@@ -204,8 +360,12 @@ export function buildOrchestratorTaskContract(story: Story): string {
  * standard worker `summary` field: fable-orchestrator rejects extra top-level
  * keys in its handoff schema.
  */
-export function buildOrchestrationAnalysisTaskContract(story: Story): string {
+export function buildOrchestrationAnalysisTaskContract(story: Story, capabilityGuidance: AnalysisCapabilityGuidance = { kind: "built-in", fallbackReason: "profile-command-unavailable" }): string {
   const criteria = story.criteria.length ? story.criteria.map((criterion) => `- ${criterion}`).join("\n") : "- No explicit criteria supplied.";
+  const routes = capabilityGuidance.kind === "profile"
+    ? capabilityGuidance.profile.routes.map((route) => `- ${route.id}: backend=${route.backend}; mode=${route.mode}; model=${route.model}; sandbox=${route.sandbox}; task_class_variants=${renderTaskClassVariants(route.taskClassVariants)}; guidance=${JSON.stringify(route.guidance)}`).join("\n")
+    : ["codex-implement", "composer-implement", "opus-implement"].map((route) => `- ${route}: guidance=${JSON.stringify(guidanceForRoute(capabilityGuidance, route as RouteId))}`).join("\n");
+  const provenance = capabilityGuidance.kind === "profile" ? "[profile:fable-orchestrator@1 route=<route id>] followed by the selected route guidance quoted verbatim" : "[built-in-routes fallback=profile-command-unavailable route=<route id>] followed by the selected route guidance quoted verbatim";
   return [
     `Analyze queued story ${story.wid} in the attached repository.`, "", "## Story", story.description || story.title,
     "", "## Acceptance criteria", criteria, "", "## Constraints",
@@ -215,13 +375,14 @@ export function buildOrchestrationAnalysisTaskContract(story: Story): string {
     "`summary` must be a JSON-encoded object (not prose) with exactly these keys:",
     '{"route":"<executable route id>","backend":"<backend CLI id>","mode":"implement","rationale":"<why>","complexity":"<level>"}',
     "Use backend CLI ids (`composer`, `codex`, or `claude`). The recommended route must equal the registered route for that backend and mode (for example `codex`, `implement`, `codex-implement`).",
+    "", "## Validated routing capability guidance", routes, `The rationale must cite ${provenance}.`,
   ].join("\n");
 }
 
 /** Composer only exposes implement mode, so make its opt-in fallback contract explicit and non-authorizing. */
-export function buildComposerAnalysisTaskContract(story: Story): string {
+export function buildComposerAnalysisTaskContract(story: Story, capabilityGuidance: AnalysisCapabilityGuidance = { kind: "built-in", fallbackReason: "profile-command-unavailable" }): string {
   return [
-    buildOrchestrationAnalysisTaskContract(story), "", "## Composer fallback restriction",
+    buildOrchestrationAnalysisTaskContract(story, capabilityGuidance), "", "## Composer fallback restriction",
     "This is an analysis-only fallback despite Composer's implement mode. Do not modify files, create a worktree, acquire a lock, commit, push, merge, or deploy.",
     "Return the required strict execution-plan JSON with backend `composer`, mode `implement`, and route `composer-implement`.",
   ].join("\n");
@@ -297,7 +458,7 @@ function requiredText(value: unknown, name: string): string {
 }
 
 /** Strictly extract the persisted execution recommendation from an analyze result. */
-export function extractOrchestrationAnalysis(result: OrchestratorRunResult): OrchestrationAnalysis {
+export function extractOrchestrationAnalysis(result: OrchestratorRunResult, capabilityGuidance?: AnalysisCapabilityGuidance): OrchestrationAnalysis {
   if (result.status !== "completed") throw new Error("Invalid orchestration analysis: analyze worker did not complete");
   let raw: unknown;
   try { raw = JSON.parse(result.summary); } catch { throw new Error("Invalid orchestration analysis: summary must contain JSON"); }
@@ -322,13 +483,22 @@ export function extractOrchestrationAnalysis(result: OrchestratorRunResult): Orc
   if (!isRouteId(route) || route !== expectedRoute) {
     throw new Error(`Invalid orchestration analysis: route must match backend and mode (expected ${JSON.stringify(expectedRoute)}, received ${JSON.stringify(route)})`);
   }
-  return {
+  const analysis: OrchestrationAnalysis = {
     route: route as RouteId,
-    backend,
+    backend: backend as OrchestratorBackend,
     mode: "implement",
     rationale: requiredText(value.rationale, "rationale"),
     complexity: requiredText(value.complexity, "complexity"),
   };
+  if (capabilityGuidance) {
+    const provenance = capabilityGuidance.kind === "profile"
+      ? `[profile:fable-orchestrator@1 route=${analysis.route}]`
+      : `[built-in-routes fallback=profile-command-unavailable route=${analysis.route}]`;
+    if (!analysis.rationale.includes(provenance) || !analysis.rationale.includes(guidanceForRoute(capabilityGuidance, analysis.route))) {
+      throw new Error("Invalid orchestration analysis: rationale must cite the selected route guidance and provenance");
+    }
+  }
+  return analysis;
 }
 
 export async function runOrchestratorPhase(
@@ -442,6 +612,10 @@ export async function runOrchestrationAnalysis(
     onFallback?: (retry: { backend: AnalysisFallbackBackend; previousBackend: OrchestratorBackend; attempt: number; error: string }) => Promise<void> | void;
   } = {}
 ): Promise<{ result: OrchestratorRunResult; analysis: OrchestrationAnalysis; stderr: string; attemptedBackends: OrchestratorBackend[] }> {
+  const bin = opts.bin ?? resolveOrchestratorBin();
+  // A malformed returned profile is deliberately fatal; PlannerWorker turns it
+  // into its existing visible planning-failed state before any route persists.
+  const capabilityGuidance = await resolveAnalysisCapabilityGuidance(bin, opts.signal);
   const fallbacks = analysisFallbacks(opts);
   // Keep the observable Codex/Claude default on the installed runner. It
   // retains its trace linkage and only retries availability-classified errors.
@@ -449,9 +623,10 @@ export async function runOrchestrationAnalysis(
     let usedClaudeFallback = false;
     const { result, stderr } = await runOrchestratorPhase(story, "codex", "analyze", {
       ...opts,
+      bin,
       fallbackClaude: true,
       cwd: repositoryPath,
-      task: buildOrchestrationAnalysisTaskContract(story),
+      task: buildOrchestrationAnalysisTaskContract(story, capabilityGuidance),
       onStderr: observeBuiltInClaudeRetry((error) => {
         usedClaudeFallback = true;
         reportFallback(opts.onFallback, { backend: "claude", previousBackend: "codex", attempt: 2, error });
@@ -459,18 +634,18 @@ export async function runOrchestrationAnalysis(
     });
     return {
       result,
-      analysis: extractOrchestrationAnalysis(result),
+      analysis: extractOrchestrationAnalysis(result, capabilityGuidance),
       stderr,
       attemptedBackends: usedClaudeFallback ? ["codex", "claude"] : ["codex"],
     };
   }
 
   const attempts: Array<{ backend: OrchestratorBackend; mode: OrchestratorMode; task: string }> = [
-    { backend: "codex", mode: "analyze", task: buildOrchestrationAnalysisTaskContract(story) },
+    { backend: "codex", mode: "analyze", task: buildOrchestrationAnalysisTaskContract(story, capabilityGuidance) },
     ...fallbacks.map((backend) => ({
       backend,
       mode: backend === "composer" ? "implement" as const : "analyze" as const,
-      task: backend === "composer" ? buildComposerAnalysisTaskContract(story) : buildOrchestrationAnalysisTaskContract(story),
+      task: backend === "composer" ? buildComposerAnalysisTaskContract(story, capabilityGuidance) : buildOrchestrationAnalysisTaskContract(story, capabilityGuidance),
     })),
   ];
   const attemptedBackends: OrchestratorBackend[] = [];
@@ -484,11 +659,12 @@ export async function runOrchestrationAnalysis(
     try {
       const { result, stderr } = await runOrchestratorPhase(story, attempt.backend, attempt.mode, {
         ...opts,
+        bin,
         fallbackClaude: false,
         cwd: repositoryPath,
         task: attempt.task,
       });
-      const analysis = extractOrchestrationAnalysis(result);
+      const analysis = extractOrchestrationAnalysis(result, capabilityGuidance);
       if (
         attempt.backend === "composer" &&
         (analysis.backend !== "composer" || analysis.mode !== "implement" || analysis.route !== "composer-implement")
