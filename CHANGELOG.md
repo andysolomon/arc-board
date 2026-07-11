@@ -1,3 +1,10 @@
+# [1.37.0](https://github.com/andysolomon/arc-board/compare/v1.36.0...v1.37.0) (2026-07-11)
+
+
+### Features
+
+* **contracts:** add shipMode and reviewLoop to Story (W-000060) ([#145](https://github.com/andysolomon/arc-board/issues/145)) ([1194c48](https://github.com/andysolomon/arc-board/commit/1194c4801145e737c9ff326fb11b89d14f70dbb3))
+
 # [1.36.0](https://github.com/andysolomon/arc-board/compare/v1.35.0...v1.36.0) (2026-07-11)
 
 
