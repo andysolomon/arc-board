@@ -1,0 +1,38 @@
+# Ship Modes & PR Review Loop Alignment — Progress
+# Plan: docs/ship-modes-IMPLEMENTATION_PLAN.md
+
+## Phase 1 — Contracts: ship mode + review-loop substate
+[ ] 1.0 Phase 1 complete
+[ ] 1.1 Add Story.shipMode ('pr'|'auto'|'merge', default 'pr') to arc-contracts
+[ ] 1.2 Add Story.reviewLoop {round, maxRounds, verdict, blockingCount} to arc-contracts
+[ ] 1.3 Update story.schema.json (additive fields, additionalProperties intact)
+[ ] 1.4 Contract-validation tests: new fields round-trip; legacy fixtures still pass
+
+## Phase 2 — Daemon: ship-aware review, gated merge
+[ ] 2.0 Phase 2 complete
+[ ] 2.1 story.review accepts ship param; pr mode initializes reviewLoop substate
+[ ] 2.2 auto mode enables squash auto-merge; merge mode squash-merges after PR creation
+[ ] 2.3 Remove annotation=accepted at PR-open (queue.ts:390,411 behavior)
+[ ] 2.4 New MCP tool story.review_round (verdict, blockingCount; increments round; caps at maxRounds)
+[ ] 2.5 Gate story.merge on verdict=approved; add override:true escape hatch with annotation
+[ ] 2.6 Switch mergePr to squash merge (gh pr merge --squash --delete-branch)
+[ ] 2.7 Daemon tests: queue, lifecycle, merge-errors updated for all modes and the gate
+
+## Phase 3 — Fable pull-loop skill: run the review loop
+[ ] 3.0 Phase 3 complete
+[ ] 3.1 Add ship step to fable-pull-loop SKILL.md (story.review ship:'pr' -> arc-pr-review-loop -> story.review_round per round -> story.merge on approval)
+[ ] 3.2 Parity check against arc-orchestrator story-queue-session ship section (PR #102)
+
+## Phase 4 — Board UI: review-loop visibility and gated merge
+[ ] 4.0 Phase 4 complete
+[ ] 4.1 Review-rounds strip in StoryDrawer (round/verdict/blocking count, PR comments link)
+[ ] 4.2 Merge button gated on approved verdict; Override & merge secondary action
+[ ] 4.3 Compact loop indicator on review-column board cards
+[ ] 4.4 App component tests for gating and strip rendering
+
+## Phase 5 — Tests, docs, release
+[ ] 5.0 Phase 5 complete
+[ ] 5.1 Full arc-story-queue + app suites green
+[ ] 5.2 docs/INTEGRATION.md + README lifecycle updated for ship modes and review loop
+[ ] 5.3 semantic-release dry run shows expected minor release
+[ ] 5.4 Archive: move docs/ship-modes-IMPLEMENTATION_PLAN.md and docs/ship-modes-progress.txt to docs/archive/
