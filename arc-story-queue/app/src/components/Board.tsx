@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Column } from "arc-contracts";
 import type { BoardStore } from "../lib/boardStore";
+import { useAsyncAction } from "../lib/useAsyncAction";
+import { AsyncButton } from "./AsyncButton";
 import { BOARD_COLUMNS } from "../lib/boardStore";
 import {
   pointerDropTargetFromPoint,
@@ -19,6 +21,7 @@ interface BoardViewProps {
 const DRAGGABLE: Column[] = ["backlog", "queued", "in_progress"];
 
 export function BoardView({ store, onOpen }: BoardViewProps) {
+  const { busy: importBusy, run: runImport } = useAsyncAction();
   const [actionError, setActionError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragCol, setDragCol] = useState<Column | null>(null);
@@ -163,13 +166,16 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
           </p>
         </div>
         {state.project && (
-          <button
+          <AsyncButton
             type="button"
             className="btn btn--secondary"
-            onClick={() => void runTransition(() => store.importIssues(state.project!.repo))}
+            busy={importBusy}
+            onClick={() =>
+              runImport(() => runTransition(() => store.importIssues(state.project!.repo)))
+            }
           >
             Import from GitHub
-          </button>
+          </AsyncButton>
         )}
       </header>
       {(actionError || (!state.project && state.error)) && (

@@ -1,13 +1,32 @@
 import type { BoardStore, BoardStory } from "../lib/boardStore";
 import { routeColor, routeLabel } from "../lib/boardStore";
 import { dispatchBlockReason } from "arc-contracts";
+import { useAsyncAction } from "../lib/useAsyncAction";
+import { AsyncButton } from "./AsyncButton";
 
 interface QueueViewProps {
   store: BoardStore;
   onOpen?: (id: string) => void;
 }
 
+function IntakeDraftButton({ store, intakeId }: { store: BoardStore; intakeId: string }) {
+  const { busy, run } = useAsyncAction();
+
+  return (
+    <AsyncButton
+      type="button"
+      className="btn btn--secondary"
+      busy={busy}
+      data-testid={`draft-intake-${intakeId}`}
+      onClick={() => run(() => store.draftIntake(intakeId))}
+    >
+      Draft →
+    </AsyncButton>
+  );
+}
+
 export function QueueView({ store, onOpen }: QueueViewProps) {
+  const { busy: pullNextBusy, run: runPullNext } = useAsyncAction();
   const state = store.getState();
   const running = store.storiesByColumn("in_progress");
   const queued = store.queueStories();
@@ -32,14 +51,16 @@ export function QueueView({ store, onOpen }: QueueViewProps) {
         </div>
         <div className="sq-view__actions">
           <span className="sq-count">{queued.length} queued</span>
-          <button
+          <AsyncButton
             type="button"
             className="btn btn--secondary"
-            onClick={() => void store.queueNext()}
+            busy={pullNextBusy}
+            data-testid="pull-next"
             disabled={!state.project || queued.length === 0}
+            onClick={() => runPullNext(() => store.queueNext())}
           >
             Pull next
-          </button>
+          </AsyncButton>
         </div>
       </header>
 
@@ -55,13 +76,7 @@ export function QueueView({ store, onOpen }: QueueViewProps) {
                   <span className="sq-mono">{item.status}</span>
                 </span>
               </span>
-              <button
-                type="button"
-                className="btn btn--secondary"
-                onClick={() => void store.draftIntake(item.id)}
-              >
-                Draft →
-              </button>
+              <IntakeDraftButton store={store} intakeId={item.id} />
             </div>
           ))}
         </section>

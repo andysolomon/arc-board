@@ -1,5 +1,7 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { BoardStory } from "../lib/boardStore";
+import { useAsyncAction } from "../lib/useAsyncAction";
+import { AsyncButton } from "./AsyncButton";
 import {
   hasLiveWorker,
   priorityColor,
@@ -35,6 +37,7 @@ export function StoryCard({
   onPointerDragStart,
   dragging,
 }: StoryCardProps) {
+  const { busy: enqueueBusy, run: runEnqueue } = useAsyncAction();
   const running = story.column === "in_progress";
   const liveWorkerStream = hasLiveWorker(story);
   const lastLine = story.lines.length > 0 ? story.lines[story.lines.length - 1] : null;
@@ -163,16 +166,16 @@ export function StoryCard({
                 </div>
               )}
               {onEnqueue && (
-                <button
+                <AsyncButton
                   type="button"
                   className="story-card__enqueue"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEnqueue(story.id);
-                  }}
+                  busy={enqueueBusy}
+                  data-testid={`enqueue-${story.id}`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => runEnqueue(() => Promise.resolve(onEnqueue(story.id)))}
                 >
                   Enqueue →
-                </button>
+                </AsyncButton>
               )}
             </>
           )}
