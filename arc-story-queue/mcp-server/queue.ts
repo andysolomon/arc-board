@@ -11,6 +11,7 @@ import {
   type Project,
   type QueueNextResult,
   type RunRecord,
+  type PrReadiness,
   type Story,
   type StoryDetail,
   isDispatchEligible,
@@ -523,11 +524,7 @@ export class QueueManager {
     return [...byName.values()];
   }
 
-  private viewPrMergeReadiness(story: Story): {
-    mergeStateStatus: string;
-    failingChecks: string[];
-    pendingChecks: string[];
-  } {
+  private viewPrMergeReadiness(story: Story): PrReadiness {
     const pr = story.pr?.trim();
     if (!pr) throw new Error(`Story ${story.id} has no PR to inspect`);
 
@@ -1076,6 +1073,13 @@ export class QueueManager {
       runs: this.store.getRunsForStory(id),
       handoff: this.store.getHandoff(id),
     };
+  }
+
+  /** Live GitHub PR merge gate snapshot for the review drawer readiness strip. */
+  async prReadiness(id: string): Promise<PrReadiness> {
+    const story = this.store.getStory(id);
+    if (!story) throw new Error(`Unknown story: ${id}`);
+    return this.viewPrMergeReadiness(story);
   }
 
   getConfig(): AppConfig {

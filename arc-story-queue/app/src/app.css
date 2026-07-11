@@ -1080,6 +1080,43 @@ body {
   background: rgba(124, 156, 255, 0.08); color: var(--sq-text-2);
   font-size: 12px; line-height: 1.5;
 }
+.sq-pr-readiness__chips {
+  display: flex; flex-wrap: wrap; gap: var(--sq-2); margin-bottom: var(--sq-3);
+}
+.sq-pr-readiness__chip {
+  display: inline-flex; align-items: center; padding: 3px 8px;
+  border-radius: 999px; font-size: 11px; font-family: var(--sq-mono);
+  border: 1px solid transparent; line-height: 1.4;
+}
+.sq-pr-readiness__chip--status { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.sq-pr-readiness__chip--clean {
+  color: var(--sq-done); background: rgba(62, 207, 142, 0.1); border-color: rgba(62, 207, 142, 0.28);
+}
+.sq-pr-readiness__chip--blocked {
+  color: var(--sq-danger); background: rgba(255, 107, 107, 0.08); border-color: rgba(255, 107, 107, 0.22);
+}
+.sq-pr-readiness__chip--behind {
+  color: var(--sq-running); background: rgba(245, 181, 68, 0.1); border-color: rgba(245, 181, 68, 0.28);
+}
+.sq-pr-readiness__chip--unknown {
+  color: var(--sq-text-3); background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.1);
+}
+.sq-pr-readiness__chip--fail {
+  color: var(--sq-danger); background: rgba(255, 107, 107, 0.08); border-color: rgba(255, 107, 107, 0.22);
+}
+.sq-pr-readiness__chip--pending {
+  color: var(--sq-running); background: rgba(245, 181, 68, 0.1); border-color: rgba(245, 181, 68, 0.28);
+}
+.sq-pr-readiness__chip--pass {
+  color: var(--sq-done); background: rgba(62, 207, 142, 0.1); border-color: rgba(62, 207, 142, 0.28);
+}
+.sq-pr-readiness__stale {
+  font-size: 10px; color: var(--sq-text-4); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.sq-pr-readiness__link {
+  display: inline-block; font-size: 12px; color: var(--sq-accent); text-decoration: none;
+}
+.sq-pr-readiness__link:hover { text-decoration: underline; }
 .sq-list { margin: 0; padding-left: var(--sq-5); font-size: 12.5px; color: var(--sq-text-2); line-height: 1.6; }
 .sq-contract-grid {
   display: flex; flex-direction: column; gap: 11px;
