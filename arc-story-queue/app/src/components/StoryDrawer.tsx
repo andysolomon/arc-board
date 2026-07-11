@@ -95,9 +95,11 @@ export function StoryDrawer({ store, detail }: StoryDrawerProps) {
 
         {story.column === "in_progress" && story.worktree && (
           <>
-            {(!boardStory || !hasLiveWorker(boardStory)) && (
-              <StartActions store={store} story={story} />
-            )}
+            <StartActions
+              store={store}
+              story={story}
+              liveWorker={boardStory ? hasLiveWorker(boardStory) : false}
+            />
             <AbandonActions store={store} story={story} />
           </>
         )}
@@ -525,7 +527,15 @@ function ReviewActions({ store, story }: { store: BoardStore; story: Story }) {
   );
 }
 
-function StartActions({ store, story }: { store: BoardStore; story: Story }) {
+function StartActions({
+  store,
+  story,
+  liveWorker,
+}: {
+  store: BoardStore;
+  story: Story;
+  liveWorker: boolean;
+}) {
   const { busy, error, run } = useAsyncAction();
   const { maxParallel } = store.getConfig();
   const slotsBusy = store.liveWorkerCount() >= maxParallel;
@@ -540,6 +550,7 @@ function StartActions({ store, story }: { store: BoardStore; story: Story }) {
         <AsyncButton
           className="btn btn--primary"
           busy={busy}
+          disabled={liveWorker}
           onClick={() => run(() => store.startStory(story.id))}
         >
           Start work
