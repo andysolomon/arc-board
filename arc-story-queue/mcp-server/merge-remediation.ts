@@ -130,6 +130,7 @@ export async function runMergeRemediationPipeline(
     }
     requireRetryMerge(result);
     await streamLine(route, result.status === "completed" ? "ok" : "out", result.summary, "done");
+    const finishedAt = Date.now();
     const runRecord: RunRecord = {
       id: `run-${story.id}-${route}-remediate-${startedAt}`,
       storyId: story.id,
@@ -140,7 +141,9 @@ export async function runMergeRemediationPipeline(
       model: "composer",
       access: "write",
       tokens: 0,
-      durMs: Math.max(1, Date.now() - startedAt),
+      durMs: Math.max(1, finishedAt - startedAt),
+      startedAt,
+      finishedAt,
       status: "completed",
       changed: result.changes.length,
       outcome: result.status === "completed" ? "accepted" : "blocked",

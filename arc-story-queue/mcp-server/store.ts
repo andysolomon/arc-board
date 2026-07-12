@@ -12,6 +12,7 @@ import {
   type RunRecord,
   type Story,
 } from "arc-contracts";
+import { validateRunRecord } from "./validate.js";
 
 export class StoryStore {
   private db: DatabaseSync;
@@ -203,7 +204,14 @@ export class StoryStore {
     return rows.map((r) => r.story_id);
   }
 
+  private parseRunRecord(data: string): RunRecord {
+    const record = JSON.parse(data) as RunRecord;
+    validateRunRecord(record);
+    return record;
+  }
+
   saveRun(record: RunRecord): void {
+    validateRunRecord(record);
     this.db
       .prepare("INSERT INTO run_records (id, story_id, data) VALUES (?, ?, ?)")
       .run(record.id, record.storyId, JSON.stringify(record));
@@ -213,12 +221,16 @@ export class StoryStore {
     const rows = this.db
       .prepare("SELECT data FROM run_records WHERE story_id = ?")
       .all(storyId) as Array<{ data: string }>;
-    return rows.map((r) => JSON.parse(r.data) as RunRecord);
+    return rows.map((r) => this.parseRunRecord(r.data));
   }
 
   listRuns(): RunRecord[] {
+    return this.getRuns();
+  }
+
+  getRuns(): RunRecord[] {
     const rows = this.db.prepare("SELECT data FROM run_records").all() as Array<{ data: string }>;
-    return rows.map((r) => JSON.parse(r.data) as RunRecord);
+    return rows.map((r) => this.parseRunRecord(r.data));
   }
 
   /** Atomically replace the queue order so `ids` occupy positions 0..n-1. */

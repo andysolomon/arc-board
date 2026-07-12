@@ -156,6 +156,19 @@ describe("arc-contracts schema fixtures", () => {
     expect(validateProject(project)).toBe(true);
   });
 
+  it("accepts RunRecord with startedAt and finishedAt timestamps", () => {
+    const startedAt = 1_700_000_000_000;
+    const finishedAt = startedAt + 500;
+    expect(validateRunRecord(makeRun({ startedAt, finishedAt, durMs: 500 }))).toBe(true);
+  });
+
+  it("accepts legacy RunRecord without startedAt or finishedAt", () => {
+    const legacy = makeRun();
+    expect(validateRunRecord(legacy)).toBe(true);
+    expect(legacy.startedAt).toBeUndefined();
+    expect(legacy.finishedAt).toBeUndefined();
+  });
+
   it("rejects invalid fixtures with clear schema errors", () => {
     const { description: _description, ...storyWithoutDescription } = makeStory();
 
@@ -322,5 +335,17 @@ describe("contract validation at the MCP boundary", () => {
       worktreeRoot: "/tmp/wt",
       status: "attached",
     });
+  });
+
+  it("round-trips legacy runs without timestamps through store.getRuns()", () => {
+    const store = new StoryStore(":memory:");
+    const legacy = makeRun({ id: "legacy-run", startedAt: undefined, finishedAt: undefined });
+    validateRunRecord(legacy);
+    store.saveRun(legacy);
+    const loaded = store.getRuns();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toEqual(legacy);
+    expect(loaded[0].startedAt).toBeUndefined();
+    expect(loaded[0].finishedAt).toBeUndefined();
   });
 });

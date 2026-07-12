@@ -127,6 +127,12 @@ describe("runOrchestratorPipeline", () => {
       expect(outcome.route).toBe("codex-implement");
       expect(outcome.runRecord.route).toBe("codex-implement");
       expect(outcome.runRecord.backend).toBe("Codex CLI");
+      expect(outcome.runRecord.startedAt).toBeTypeOf("number");
+      expect(outcome.runRecord.finishedAt).toBeTypeOf("number");
+      expect(outcome.runRecord.startedAt!).toBeLessThanOrEqual(outcome.runRecord.finishedAt!);
+      expect(
+        Math.abs(outcome.runRecord.finishedAt! - outcome.runRecord.startedAt! - outcome.runRecord.durMs)
+      ).toBeLessThanOrEqual(50);
       expect(lines.some((line) => line.kind === "cmd" && line.text.includes("--backend codex --mode implement"))).toBe(true);
       expect(lines.some((line) => line.route === "codex-implement" && line.kind === "lock")).toBe(true);
       expect(lines.some((line) => line.text.includes("delegating W-000044 to codex-implement"))).toBe(true);

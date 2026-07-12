@@ -262,6 +262,8 @@ export interface RunRecord {
   access: Access;
   tokens: number;
   durMs: number;
+  startedAt?: number;           // epoch ms when the run began
+  finishedAt?: number;            // epoch ms when the run ended
   status: "completed" | "failed";
   changed: number;              // files changed
   outcome: RunOutcome;
@@ -676,6 +678,8 @@ export const runRecordSchema: JsonSchema = {
     access: { enum: ["read-only", "write", "parent"] },
     tokens: { type: "integer", minimum: 0 },
     durMs: { type: "integer", minimum: 0 },
+    startedAt: { type: "integer", minimum: 0 },
+    finishedAt: { type: "integer", minimum: 0 },
     status: { enum: ["completed", "failed"] },
     changed: { type: "integer", minimum: 0 },
     outcome: { enum: ["accepted", "rejected", "blocked", "verification-failed", "escalated", "unrated"] },

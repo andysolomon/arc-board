@@ -438,6 +438,7 @@ export class QueueManager {
     delete story.annotation;
     this.store.upsertStory(story);
 
+    const sentAt = Date.now();
     const run: RunRecord = {
       id: `run-${story.id}-review-${story.wid}`,
       storyId: story.id,
@@ -449,6 +450,8 @@ export class QueueManager {
       access: "parent",
       tokens: 0,
       durMs: 1,
+      startedAt: sentAt - 1,
+      finishedAt: sentAt,
       status: "completed",
       changed: changed.length,
       outcome: "unrated",
