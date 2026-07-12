@@ -71,7 +71,7 @@ export function computeMeanDuration(runs: RunRecord[]): number {
 export function computeP95Duration(runs: RunRecord[]): number {
   if (runs.length === 0) return 0;
   const sorted = runs.map((run) => run.durMs).sort((a, b) => a - b);
-  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * 0.95) - 1));
   return sorted[idx]!;
 }
 

@@ -77,6 +77,13 @@ describe("observability KPI helpers", () => {
     expect(computeP95Duration(runs)).toBe(500);
   });
 
+  it("uses the nearest-rank p95 when 0.95 * n is an integer", () => {
+    const runs = Array.from({ length: 20 }, (_, i) =>
+      makeRun({ id: `r${i}`, durMs: (i + 1) * 100 }),
+    );
+    expect(computeP95Duration(runs)).toBe(1900);
+  });
+
   it("filters runs by 24h scope and keeps missing startedAt only under All", () => {
     const now = 1_700_000_000_000;
     const runs = [
