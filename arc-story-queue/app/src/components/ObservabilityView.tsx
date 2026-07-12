@@ -302,11 +302,11 @@ function DelegationDagSection({
         </div>
       </div>
 
-      {allRuns.length === 0 ? (
+      {!dag ? (
         <div className="sq-empty" data-testid="obs-dag-empty">
           No delegation runs yet — complete a story to trace agent handoffs here.
         </div>
-      ) : dag ? (
+      ) : (
         <div className="sq-obs-dag__scroll sq-scroll" data-testid="obs-dag-scroll">
           <div
             className="sq-obs-dag__canvas"
@@ -404,7 +404,7 @@ function DelegationDagSection({
             </div>
           </div>
         </div>
-      ) : null}
+      )}
     </section>
   );
 }

@@ -195,9 +195,16 @@ export function buildObsDagLayout(
 ): ObsDagLayout {
   const ordered = sortStoryRuns(runs);
   const fablePhases = resolveFablePhases(ordered);
+  // Edges must stay monotonic by phase even when startedAt is missing and the
+  // route-lane fallback sorts fable (PLAN) last; stable sort keeps startedAt
+  // order within a phase.
+  const sequenced = [...ordered].sort(
+    (a, b) =>
+      OBS_PHASES.indexOf(runPhase(a, fablePhases)) - OBS_PHASES.indexOf(runPhase(b, fablePhases)),
+  );
   const phaseCounts = new Map<ObsPhase, number>();
 
-  const nodes: ObsDagNodeLayout[] = ordered.map((run) => {
+  const nodes: ObsDagNodeLayout[] = sequenced.map((run) => {
     const phase = runPhase(run, fablePhases);
     const stack = phaseCounts.get(phase) ?? 0;
     phaseCounts.set(phase, stack + 1);

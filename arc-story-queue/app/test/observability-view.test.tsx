@@ -784,4 +784,39 @@ describe("ObservabilityView delegation DAG", () => {
     expect(empty?.textContent).toContain("No delegation runs yet");
     expect(container.querySelector("[data-testid='obs-dag-scroll']")).toBeNull();
   });
+
+  it("renders the empty state when runs exist but their story is missing", async () => {
+    const store = obsStoreStub({
+      runs: [makeRun({ id: "orphan", storyId: "gone" })],
+      stories: [],
+    });
+
+    await act(async () => {
+      root.render(<ObservabilityView store={store} />);
+    });
+
+    expect(container.querySelector("[data-testid='obs-dag-empty']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='obs-dag-scroll']")).toBeNull();
+  });
+
+  it("keeps edges monotonic by phase when runs lack startedAt", () => {
+    const story = makeStory({ id: "story-1" });
+    const layout = buildObsDagLayout(
+      [
+        makeRun({ id: "check", route: "codex-check", startedAt: undefined, finishedAt: undefined }),
+        makeRun({ id: "plan", route: "fable", startedAt: undefined, finishedAt: undefined }),
+        makeRun({
+          id: "build",
+          route: "composer-implement",
+          startedAt: undefined,
+          finishedAt: undefined,
+        }),
+      ],
+      story,
+    );
+
+    expect(layout.nodes.map((node) => node.phase)).toEqual(["plan", "build", "verify"]);
+    const xs = layout.nodes.map((node) => node.x);
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+  });
 });
