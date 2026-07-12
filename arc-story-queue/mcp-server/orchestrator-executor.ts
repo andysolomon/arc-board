@@ -417,10 +417,13 @@ export function orchestratorCommandLine(bin: string, args: string[]): string {
 }
 
 export function traceToRunRecord(trace: OrchestratorTraceRecord, story: Story, route: RouteId): RunRecord {
+  const finishedAt = Date.now();
+  const startedAt = finishedAt - trace.duration_ms;
   return {
     id: trace.run_id, storyId: story.id, label: trace.label ?? `${story.wid} orchestrator`, repo: story.repo, route,
     backend: BACKEND_LABEL[trace.backend], model: trace.model, access: routeAccess(route), tokens: trace.tokens?.total_tokens ?? 0,
-    durMs: trace.duration_ms, status: trace.status === "completed" || trace.status === "blocked" ? "completed" : "failed",
+    durMs: trace.duration_ms, startedAt, finishedAt,
+    status: trace.status === "completed" || trace.status === "blocked" ? "completed" : "failed",
     changed: trace.changed_files ?? 0, outcome: "unrated",
   };
 }
@@ -707,10 +710,12 @@ export async function runOrchestratorPipeline(client: Client, story: Story, stre
   await streamLine(client, story, route, "cmd", orchestratorCommandLine(bin, args).replace(buildOrchestratorTaskContract(story), "<task contract>"));
   const startedAt = Date.now();
   const { result, stderr } = await runOrchestratorPhase(story, backend, mode, opts);
+  const finishedAt = Date.now();
   for (const line of stderr.trim().split(/\r?\n/).filter(Boolean).slice(-6)) await streamLine(client, story, route, "out", line.slice(0, 1200));
   if (result.status === "blocked") throw new Error(result.summary);
   await streamLine(client, story, route, "ok", result.summary, "done");
   if (routeNeedsWriteLock(route)) await streamLine(client, story, route, "unlock", "write-lock released after orchestrator run");
+  const durMs = Math.max(1, finishedAt - startedAt);
   const runRecord: RunRecord = {
     id: `run-${story.id}-${route}-${startedAt}`,
     storyId: story.id,
@@ -721,7 +726,9 @@ export async function runOrchestratorPipeline(client: Client, story: Story, stre
     model: routeModel(route),
     access: routeAccess(route),
     tokens: 0,
-    durMs: Math.max(1, Date.now() - startedAt),
+    durMs,
+    startedAt,
+    finishedAt,
     status: "completed",
     changed: result.changes.length,
     outcome: "unrated",

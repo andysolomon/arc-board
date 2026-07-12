@@ -68,6 +68,14 @@
       "type": "integer",
       "minimum": 0
     },
+    "startedAt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "finishedAt": {
+      "type": "integer",
+      "minimum": 0
+    },
     "status": {
       "enum": ["completed", "failed"]
     },

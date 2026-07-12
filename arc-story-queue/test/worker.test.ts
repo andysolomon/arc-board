@@ -183,6 +183,11 @@ describe("deterministic worker", () => {
       changed: 1,
     });
     expect(runs.filter((run) => run.access === "read-only")).toHaveLength(2);
+    for (const run of runs) {
+      expect(run.startedAt).toBeTypeOf("number");
+      expect(run.finishedAt).toBeTypeOf("number");
+      expect(Math.abs(run.finishedAt! - run.startedAt! - run.durMs)).toBeLessThanOrEqual(50);
+    }
 
     const lastCommit = execFileSync("git", ["log", "-1", "--pretty=%s"], {
       cwd: reserved.worktree,
