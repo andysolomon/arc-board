@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { RunRecord } from "arc-contracts";
 import type { ActivityItem, BoardStore } from "../lib/boardStore";
-import { routeColor } from "../lib/boardStore";
+import { routeColor, routeLabel } from "../lib/boardStore";
 import { formatRelativeTime } from "./ActivityView";
 
 const BROADCAST_LIMIT = 20;
@@ -13,12 +13,37 @@ interface ObservabilityViewProps {
   store: BoardStore;
 }
 
-interface ModelGroup {
+export const OBS_DONUT_RADIUS = 52;
+export const OBS_DONUT_CIRCUMFERENCE = 2 * Math.PI * OBS_DONUT_RADIUS;
+
+export interface ModelUsageBar {
   model: string;
   runs: number;
-  accepted: number;
-  meanTok: number;
-  meanDur: number;
+  color: string;
+  widthPct: number;
+}
+
+export interface TokenDonutSegment {
+  route: string;
+  short: string;
+  color: string;
+  tokens: number;
+  label: string;
+  dash: string;
+  offset: number;
+  fraction: number;
+}
+
+export interface RouteDurationStat {
+  route: string;
+  short: string;
+  color: string;
+  meanMs: number;
+  p95Ms: number;
+  meanLabel: string;
+  p95Label: string;
+  meanPct: number;
+  p95Pct: number;
 }
 
 export interface ObsKpiTile {
@@ -28,25 +53,100 @@ export interface ObsKpiTile {
   sub: string;
 }
 
-function groupByModel(runs: RunRecord[]): ModelGroup[] {
-  const map = new Map<string, { runs: number; accepted: number; tok: number; dur: number }>();
-  for (const r of runs) {
-    const g = map.get(r.model) ?? { runs: 0, accepted: 0, tok: 0, dur: 0 };
-    g.runs += 1;
-    if (r.outcome === "accepted") g.accepted += 1;
-    g.tok += r.tokens;
-    g.dur += r.durMs;
-    map.set(r.model, g);
+function predominantRoute(runs: RunRecord[]): string {
+  if (runs.length === 0) return "fable";
+  const counts = new Map<string, number>();
+  for (const run of runs) {
+    counts.set(run.route, (counts.get(run.route) ?? 0) + 1);
   }
-  return [...map.entries()]
-    .map(([model, g]) => ({
-      model,
-      runs: g.runs,
-      accepted: g.accepted,
-      meanTok: Math.round(g.tok / g.runs),
-      meanDur: Math.round(g.dur / g.runs),
-    }))
-    .sort((a, b) => b.runs - a.runs);
+  let bestRoute: string = runs[0]!.route;
+  let bestCount = 0;
+  for (const [route, count] of counts) {
+    if (count > bestCount) {
+      bestRoute = route;
+      bestCount = count;
+    }
+  }
+  return bestRoute;
+}
+
+export function buildModelUsageBars(runs: RunRecord[]): ModelUsageBar[] {
+  const byModel = new Map<string, RunRecord[]>();
+  for (const run of runs) {
+    const group = byModel.get(run.model) ?? [];
+    group.push(run);
+    byModel.set(run.model, group);
+  }
+  const rows = [...byModel.entries()].map(([model, modelRuns]) => ({
+    model,
+    runs: modelRuns.length,
+    color: routeColor(predominantRoute(modelRuns)),
+  }));
+  rows.sort((a, b) => b.runs - a.runs);
+  const maxRuns = Math.max(1, ...rows.map((row) => row.runs));
+  return rows.map((row) => ({
+    ...row,
+    widthPct: (row.runs / maxRuns) * 100,
+  }));
+}
+
+export function buildTokenDonutSegments(runs: RunRecord[]): {
+  segments: TokenDonutSegment[];
+  totalTokens: number;
+} {
+  const byRoute = new Map<string, number>();
+  for (const run of runs) {
+    byRoute.set(run.route, (byRoute.get(run.route) ?? 0) + run.tokens);
+  }
+  const entries = [...byRoute.entries()]
+    .map(([route, tokens]) => ({ route, tokens }))
+    .sort((a, b) => b.tokens - a.tokens);
+  const totalTokens = entries.reduce((sum, entry) => sum + entry.tokens, 0);
+  let accumulated = 0;
+  const segments = entries.map(({ route, tokens }) => {
+    const fraction = totalTokens > 0 ? tokens / totalTokens : 0;
+    const arc = fraction * OBS_DONUT_CIRCUMFERENCE;
+    const segment = {
+      route,
+      short: routeLabel(route),
+      color: routeColor(route),
+      tokens,
+      label: tokens.toLocaleString(),
+      dash: `${arc} ${OBS_DONUT_CIRCUMFERENCE - arc}`,
+      offset: -accumulated,
+      fraction,
+    };
+    accumulated += arc;
+    return segment;
+  });
+  return { segments, totalTokens };
+}
+
+export function buildRouteDurationStats(runs: RunRecord[]): RouteDurationStat[] {
+  const byRoute = new Map<string, RunRecord[]>();
+  for (const run of runs) {
+    const group = byRoute.get(run.route) ?? [];
+    group.push(run);
+    byRoute.set(run.route, group);
+  }
+  const maxDur = Math.max(1, ...runs.map((run) => run.durMs));
+  return [...byRoute.entries()]
+    .map(([route, routeRuns]) => {
+      const meanMs = computeMeanDuration(routeRuns);
+      const p95Ms = computeP95Duration(routeRuns);
+      return {
+        route,
+        short: routeLabel(route),
+        color: routeColor(route),
+        meanMs,
+        p95Ms,
+        meanLabel: formatObsDuration(meanMs),
+        p95Label: formatObsDuration(p95Ms),
+        meanPct: (meanMs / maxDur) * 100,
+        p95Pct: (p95Ms / maxDur) * 100,
+      };
+    })
+    .sort((a, b) => b.meanMs - a.meanMs);
 }
 
 function pct(n: number, d: number): number {
@@ -165,7 +265,9 @@ export function ObservabilityView({ store }: ObservabilityViewProps) {
   const allRuns = store.getRuns();
   const scopedRuns = filterRunsByScope(allRuns, scope);
   const total = allRuns.length;
-  const groups = groupByModel(scopedRuns);
+  const modelUsage = buildModelUsageBars(scopedRuns);
+  const tokenDonut = buildTokenDonutSegments(scopedRuns);
+  const routeDurations = buildRouteDurationStats(scopedRuns);
   const recent = [...scopedRuns].slice(-12).reverse();
   const broadcast = store.getActivityItems().slice(0, BROADCAST_LIMIT);
   const now = Date.now();
@@ -267,34 +369,132 @@ export function ObservabilityView({ store }: ObservabilityViewProps) {
         </div>
       ) : (
         <>
-          <section className="sq-block">
-            <div className="sq-block__label">By model</div>
-            <div className="sq-table">
-              <div className="sq-table__head">
-                <span>Model</span>
-                <span>Runs</span>
-                <span>Acceptance</span>
-                <span>Mean tok</span>
-                <span>Mean dur</span>
-              </div>
-              {groups.map((g) => (
-                <div key={g.model} className="sq-table__row">
-                  <span className="sq-mono">{g.model}</span>
-                  <span className="sq-mono">{g.runs}</span>
-                  <span className="sq-meter">
-                    <span className="sq-meter__bar">
-                      <span
-                        className="sq-meter__fill"
-                        style={{ width: `${pct(g.accepted, g.runs)}%` }}
-                      />
-                    </span>
-                    <span className="sq-mono">{pct(g.accepted, g.runs)}%</span>
-                  </span>
-                  <span className="sq-mono">{g.meanTok.toLocaleString()}</span>
-                  <span className="sq-mono">{g.meanDur}ms</span>
+          <div className="sq-obs-grid">
+            <section className="sq-block sq-obs-panel" data-testid="obs-model-usage">
+              <div className="sq-block__label">Model usage · runs</div>
+              {modelUsage.length === 0 ? (
+                <div className="sq-empty sq-obs-empty">No runs in this scope.</div>
+              ) : (
+                <div className="sq-obs-bars">
+                  {modelUsage.map((bar) => (
+                    <div key={bar.model} className="sq-obs-bar" data-testid={`obs-model-bar-${bar.model}`}>
+                      <div className="sq-obs-bar__head">
+                        <span className="sq-mono sq-obs-bar__model">{bar.model}</span>
+                        <span className="sq-mono sq-obs-bar__count">{bar.runs}</span>
+                      </div>
+                      <div className="sq-obs-bar__track">
+                        <span
+                          className="sq-obs-bar__fill"
+                          data-testid={`obs-model-bar-fill-${bar.model}`}
+                          style={{ width: `${bar.widthPct}%`, background: bar.color }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+            </section>
+
+            <section className="sq-block sq-obs-panel" data-testid="obs-token-donut">
+              <div className="sq-block__label">Token spend</div>
+              <div className="sq-obs-donut">
+                <svg
+                  className="sq-obs-donut__chart"
+                  viewBox="0 0 128 128"
+                  aria-label="Token spend by route"
+                  data-testid="obs-token-donut-svg"
+                >
+                  <circle
+                    cx="64"
+                    cy="64"
+                    r={OBS_DONUT_RADIUS}
+                    fill="none"
+                    stroke="rgba(255,255,255,0.06)"
+                    strokeWidth="16"
+                  />
+                  <g transform="rotate(-90 64 64)">
+                    {tokenDonut.segments.map((segment) => (
+                      <circle
+                        key={segment.route}
+                        cx="64"
+                        cy="64"
+                        r={OBS_DONUT_RADIUS}
+                        fill="none"
+                        stroke={segment.color}
+                        strokeWidth="16"
+                        strokeDasharray={segment.dash}
+                        strokeDashoffset={segment.offset}
+                        data-testid={`obs-token-seg-${segment.route}`}
+                        data-fraction={segment.fraction}
+                      />
+                    ))}
+                  </g>
+                  <text
+                    x="64"
+                    y="60"
+                    textAnchor="middle"
+                    className="sq-obs-donut__total"
+                    data-testid="obs-token-total"
+                  >
+                    {tokenDonut.totalTokens.toLocaleString()}
+                  </text>
+                  <text x="64" y="78" textAnchor="middle" className="sq-obs-donut__caption">
+                    TOKENS
+                  </text>
+                </svg>
+                <div className="sq-obs-donut__legend">
+                  {tokenDonut.segments.map((segment) => (
+                    <div key={segment.route} className="sq-obs-donut__legend-row">
+                      <span className="sq-obs-donut__swatch" style={{ background: segment.color }} />
+                      <span className="sq-obs-donut__route">{segment.short}</span>
+                      <span className="sq-mono sq-obs-donut__value">{segment.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section className="sq-block sq-obs-panel" data-testid="obs-dur-routes">
+            <div className="sq-block__label sq-block__label--row">
+              Duration by route
+              <span className="sq-obs-dur__legend">
+                <span className="sq-obs-dur__legend-mean">mean</span>
+                <span className="sq-obs-dur__legend-p95">p95</span>
+              </span>
             </div>
+            {routeDurations.length === 0 ? (
+              <div className="sq-empty sq-obs-empty">No runs in this scope.</div>
+            ) : (
+              <div className="sq-obs-dur">
+                {routeDurations.map((route) => (
+                  <div key={route.route} className="sq-obs-dur__row" data-testid={`obs-dur-route-${route.route}`}>
+                    <div className="sq-obs-dur__head">
+                      <span className="sq-obs-dur__label">
+                        <span className="sq-obs-dur__swatch" style={{ background: route.color }} />
+                        {route.short}
+                      </span>
+                      <span
+                        className="sq-mono sq-obs-dur__values"
+                        data-testid={`obs-dur-values-${route.route}`}
+                      >
+                        {route.meanLabel} · {route.p95Label}
+                      </span>
+                    </div>
+                    <div className="sq-obs-dur__track">
+                      <span
+                        className="sq-obs-dur__mean"
+                        style={{ width: `${route.meanPct}%`, background: route.color }}
+                      />
+                      <span
+                        className="sq-obs-dur__p95"
+                        style={{ left: `${route.p95Pct}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="sq-block">
