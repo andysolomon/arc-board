@@ -17,14 +17,26 @@ function App() {
     return store.subscribe(() => setTick((n) => n + 1));
   }, [store]);
 
-  // Connect to the daemon on load so the pill reflects reality immediately.
   useEffect(() => {
-    void store.connect().catch(() => undefined);
-  }, [store]);
-
-  useEffect(() => {
+    if (import.meta.env.DEV) {
+      (window as Window & { __sqStore?: BoardStore }).__sqStore = store;
+    }
+    const globals = window as Window & { __SQ_E2E_HYDRATE__?: string };
+    const raw = globals.__SQ_E2E_HYDRATE__;
+    let hydrated = false;
+    if (import.meta.env.DEV && raw) {
+      try {
+        store.e2eHydrate(JSON.parse(raw));
+        hydrated = true;
+      } catch {
+        // ignore malformed e2e payloads
+      }
+    }
+    if (!hydrated) {
+      void store.connect().catch(() => undefined);
+    }
     return () => {
-      void store.close();
+      if (!hydrated) void store.close();
     };
   }, [store]);
 
