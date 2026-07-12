@@ -1,3 +1,10 @@
+# [2.4.0](https://github.com/andysolomon/arc-board/compare/v2.3.0...v2.4.0) (2026-07-12)
+
+
+### Features
+
+* **app:** observability KPI tiles with 24h/All scope toggle (W-000066) ([#157](https://github.com/andysolomon/arc-board/issues/157)) ([3a9f627](https://github.com/andysolomon/arc-board/commit/3a9f6277f20c4c5fd9867f76d54c26849ae180f5)), closes [#151](https://github.com/andysolomon/arc-board/issues/151)
+
 # [2.3.0](https://github.com/andysolomon/arc-board/compare/v2.2.0...v2.3.0) (2026-07-12)
 
 
