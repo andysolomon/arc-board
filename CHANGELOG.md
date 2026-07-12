@@ -1,3 +1,10 @@
+# [2.3.0](https://github.com/andysolomon/arc-board/compare/v2.2.0...v2.3.0) (2026-07-12)
+
+
+### Features
+
+* **app:** live Monitor broadcast feed on Observability (W-000069) ([#156](https://github.com/andysolomon/arc-board/issues/156)) ([baed5ba](https://github.com/andysolomon/arc-board/commit/baed5ba3766b944c3afca72de04cfeec8ccb84bb)), closes [#154](https://github.com/andysolomon/arc-board/issues/154)
+
 # [2.2.0](https://github.com/andysolomon/arc-board/compare/v2.1.0...v2.2.0) (2026-07-12)
 
 
