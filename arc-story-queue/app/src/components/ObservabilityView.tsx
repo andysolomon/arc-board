@@ -1,6 +1,10 @@
+import { useEffect, useState } from "react";
 import type { RunRecord } from "arc-contracts";
-import type { BoardStore } from "../lib/boardStore";
+import type { ActivityItem, BoardStore } from "../lib/boardStore";
 import { routeColor } from "../lib/boardStore";
+import { formatRelativeTime } from "./ActivityView";
+
+const BROADCAST_LIMIT = 20;
 
 interface ObservabilityViewProps {
   store: BoardStore;
@@ -39,7 +43,21 @@ function pct(n: number, d: number): number {
   return d === 0 ? 0 : Math.round((n / d) * 100);
 }
 
+/** Map activity subjects to orchestration routes for broadcast markers. */
+export function activityRoute(item: ActivityItem): string {
+  const bySubject: Record<string, string> = {
+    Queue: "composer-implement",
+    Planner: "opus-explore",
+    Fable: "fable",
+    You: "fable",
+  };
+  return bySubject[item.subject] ?? "fable";
+}
+
 export function ObservabilityView({ store }: ObservabilityViewProps) {
+  const [, setTick] = useState(0);
+  useEffect(() => store.subscribe(() => setTick((n) => n + 1)), [store]);
+
   const state = store.getState();
   const runs = store.getRuns();
   const total = runs.length;
@@ -47,6 +65,8 @@ export function ObservabilityView({ store }: ObservabilityViewProps) {
   const totalTokens = runs.reduce((s, r) => s + r.tokens, 0);
   const groups = groupByModel(runs);
   const recent = [...runs].slice(-12).reverse();
+  const broadcast = store.getActivityItems().slice(0, BROADCAST_LIMIT);
+  const now = Date.now();
 
   return (
     <div className="sq-view">
@@ -77,6 +97,49 @@ export function ObservabilityView({ store }: ObservabilityViewProps) {
           <div className="sq-tile__label">Total tokens</div>
         </div>
       </div>
+
+      <section className="sq-block" data-testid="monitor-broadcast">
+        <div className="sq-block__label sq-block__label--row">
+          Monitor broadcast
+          <span className="sq-block__meta">
+            <span className="sq-live-label">
+              <span className="sq-dot" />
+              LIVE
+            </span>
+          </span>
+        </div>
+        <div role="feed" aria-label="Monitor broadcast">
+          {broadcast.length === 0 ? (
+            <div className="sq-empty" data-testid="monitor-broadcast-empty">
+              No broadcast events yet. Orchestration activity will stream here as it arrives.
+            </div>
+          ) : (
+            broadcast.map((item) => {
+              const route = activityRoute(item);
+              return (
+                <div key={item.id} className="sq-runrow" data-testid={`monitor-broadcast-item-${item.id}`}>
+                  <span
+                    className="sq-route__dot"
+                    data-route={route}
+                    style={{ background: routeColor(route) }}
+                  />
+                  <span className="sq-runrow__label">
+                    <span className="sq-activity__subject">{item.subject}</span>
+                    {item.text ? <span> {item.text}</span> : <span> {item.message}</span>}
+                  </span>
+                  <time
+                    className="sq-activity__time"
+                    dateTime={new Date(item.ts).toISOString()}
+                    title={new Date(item.ts).toLocaleString()}
+                  >
+                    {formatRelativeTime(item.ts, now)}
+                  </time>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
 
       {total === 0 ? (
         <div className="sq-empty">No runs yet — complete a story to record traces.</div>
