@@ -126,7 +126,7 @@ export function createInitialBoardState(): BoardState {
     trackedIds: [],
     runs: [],
     queueOrder: [],
-    config: { autoRun: false, maxParallel: 2, requireOrchestrationPlan: true },
+    config: { autoRun: false, maxParallel: 2, requireOrchestrationPlan: true, runTraceView: "v2-aware" },
     detail: null,
     intake: [],
     toasts: [],

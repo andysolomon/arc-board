@@ -1,6 +1,7 @@
 // arc-contracts — shared types, schemas, validators, and route metadata for the Story Queue pipeline.
 
 import Ajv, { type ValidateFunction } from "ajv";
+import type { RunTraceViewMode, RoutingTraceSidecar } from "./routing-trace-sidecar.js";
 
 export {
   dispatchBlockReason,
@@ -9,6 +10,25 @@ export {
   mutexKeysFromTags,
   storyMutexKeys,
 } from "./concurrency.js";
+
+export {
+  ROUTING_TRACE_V2_CONTRACT,
+  isLegacySchema4Trace,
+  isRoutingTraceSidecar,
+  routingTraceSidecarSchema,
+  validateRoutingTraceSidecar,
+  type LegacySchema4Trace,
+  type LegacyTraceBackend,
+  type LegacyTraceEffort,
+  type LegacyTraceFailureClass,
+  type LegacyTraceOutageReason,
+  type RoutingTraceBudgetDimension,
+  type RoutingTraceBudgetMeasurement,
+  type RoutingTraceBudgetScope,
+  type RoutingTraceSidecar,
+  type RoutingTraceV2AliasKind,
+  type RunTraceViewMode,
+} from "./routing-trace-sidecar.js";
 
 export type Column = "backlog" | "queued" | "in_progress" | "review" | "done";
 export type Priority = "high" | "med" | "low";
@@ -103,6 +123,15 @@ export const ROUTES = [
     access: "read-only",
     color: "var(--sq-route-review)",
     use: "Deep verification and review",
+  },
+  {
+    id: "opus-review",
+    label: "opus-review",
+    backend: "Claude Agent",
+    model: "opus-4.8",
+    access: "read-only",
+    color: "var(--sq-route-review)",
+    use: "High-taste UX, API, and abstraction critique",
   },
   {
     id: "fable",
@@ -269,6 +298,12 @@ export interface RunRecord {
   outcome: RunOutcome;
 }
 
+/** Joined observability read model: projected run plus optional persisted v2 sidecar. */
+export interface RunWithTrace {
+  run: RunRecord;
+  routingTrace: RoutingTraceSidecar | null;
+}
+
 /** An attached, already-running agent session = a project. */
 export interface Project {
   id: string;
@@ -353,6 +388,8 @@ export interface AppConfig {
   maxParallel: number;
   /** Require an approved orchestration plan before a queued story can be dispatched. */
   requireOrchestrationPlan: boolean;
+  /** Run reader projection: v2-aware overlays sidecar identity; legacy reads stored legacy projection. */
+  runTraceView: RunTraceViewMode;
 }
 
 /** Result of asking the queue to reserve its next runnable story. */

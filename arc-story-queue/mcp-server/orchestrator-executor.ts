@@ -4,13 +4,20 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   isRouteId,
-  routeMeta,
   routeAccess,
+  routeMeta,
   routeModel,
   routeNeedsWriteLock,
+  type LegacySchema4Trace,
   type RouteId,
+  type RoutingTraceSidecar,
+  type RunOutcome,
   type RunRecord,
+  type RunTraceViewMode,
   type Story,
+  validateRoutingTraceSidecar,
+  isLegacySchema4Trace,
+  isRoutingTraceSidecar,
 } from "arc-contracts";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
@@ -414,6 +421,204 @@ export function orchestratorAnalyzeArgs(story: Story, repositoryPath: string, bi
 
 export function orchestratorCommandLine(bin: string, args: string[]): string {
   return `${bin} ${args.map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg)).join(" ")}`;
+}
+
+export type OrchestratorTraceInput = LegacySchema4Trace | RoutingTraceSidecar;
+
+export interface TraceProjectionContext {
+  storyId: string;
+  repo: string;
+}
+
+export type LegacyTraceProjectionContext = TraceProjectionContext & {
+  /** Legacy schema-4 traces require an explicit route; never infer from backend×mode. */
+  route: RouteId;
+};
+
+const CANONICAL_CAPABILITY_ROUTES: Readonly<Record<string, RouteId>> = {
+  "explore.read-only.v1": "codex-explore",
+  "implement.workspace-write.v1": "composer-implement",
+  "check.read-only.v1": "codex-check",
+  "taste-review.read-only.v1": "opus-review",
+};
+
+export const SUPPORTED_CANONICAL_CAPABILITY_ROUTES = Object.freeze(
+  Object.keys(CANONICAL_CAPABILITY_ROUTES)
+) as readonly string[];
+
+const LEGACY_BACKEND_LABEL: Record<LegacySchema4Trace["backend"], string> = {
+  composer: "Cursor Agent",
+  codex: "Codex CLI",
+  claude: "Claude Agent",
+};
+
+const SERVING_PROVIDER_LABEL: Record<string, string> = {
+  Cursor: "Cursor Agent",
+  OpenAI: "Codex CLI",
+  Anthropic: "Claude Agent",
+};
+
+function requiredIdentity(value: string | null | undefined, field: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`Routing trace v2 missing stable identity: ${field}`);
+  }
+  return value.trim();
+}
+
+/** Resolve a v2 route from explicit alias/canonical fields only. */
+export function resolveRoutingTraceV2Route(trace: RoutingTraceSidecar): RouteId {
+  const alias = trace.route.requested_public_alias?.trim();
+  if (alias) {
+    if (isRouteId(alias)) return alias;
+    throw new Error(
+      `Routing trace v2 has unsupported route identity (requested_public_alias=${JSON.stringify(trace.route.requested_public_alias)})`
+    );
+  }
+  const canonical = trace.route.canonical_capability_route?.trim();
+  if (canonical) {
+    const mapped = CANONICAL_CAPABILITY_ROUTES[canonical];
+    if (mapped) return mapped;
+    throw new Error(
+      `Routing trace v2 has unsupported canonical capability route (canonical_capability_route=${JSON.stringify(trace.route.canonical_capability_route)}; supported=${SUPPORTED_CANONICAL_CAPABILITY_ROUTES.join(", ")})`
+    );
+  }
+  throw new Error(
+    `Routing trace v2 missing route identity (requested_public_alias=${JSON.stringify(trace.route.requested_public_alias)}, canonical_capability_route=${JSON.stringify(trace.route.canonical_capability_route)})`
+  );
+}
+
+/** Resolve a v2 model from explicit models/serving stable fields only. */
+export function resolveRoutingTraceV2Model(trace: RoutingTraceSidecar): string {
+  return requiredIdentity(
+    trace.models.selected ?? trace.serving.stable_id ?? trace.serving.provider_model_id,
+    "models.selected or serving.stable_id"
+  );
+}
+
+function resolveRoutingTraceV2BackendLabel(trace: RoutingTraceSidecar, route: RouteId): string {
+  const provider = trace.serving.provider?.trim();
+  if (provider && SERVING_PROVIDER_LABEL[provider]) return SERVING_PROVIDER_LABEL[provider]!;
+  return routeMeta(route)?.backend ?? requiredIdentity(trace.serving.transport_backend, "serving.transport_backend");
+}
+
+function legacySandboxToAccess(sandbox: LegacySchema4Trace["sandbox"]): RunRecord["access"] {
+  return sandbox === "workspace-write" ? "write" : "read-only";
+}
+
+function legacyStatusToRunStatus(status: LegacySchema4Trace["status"]): RunRecord["status"] {
+  return status === "completed" ? "completed" : "failed";
+}
+
+function legacyOutcomeToRunOutcome(outcome: LegacySchema4Trace["outcome"]): RunOutcome {
+  return outcome ?? "unrated";
+}
+
+function legacyLabel(trace: LegacySchema4Trace): string {
+  if (trace.label && trace.label.length > 0) return trace.label;
+  return `${trace.backend}/${trace.mode}`;
+}
+
+/** Project a legacy schema-4 trace into the closed RunRecord using caller-supplied route identity. */
+export function legacySchema4ToRunRecord(trace: LegacySchema4Trace, context: LegacyTraceProjectionContext): RunRecord {
+  if (!context.storyId) throw new Error("TraceProjectionContext.storyId must be non-empty");
+  if (!context.repo) throw new Error("TraceProjectionContext.repo must be non-empty");
+  if (!isRouteId(context.route)) {
+    throw new Error(`Legacy trace projection requires an explicit registered route (received ${JSON.stringify(context.route)})`);
+  }
+  const record: RunRecord = {
+    id: trace.run_id,
+    storyId: context.storyId,
+    label: legacyLabel(trace),
+    repo: context.repo,
+    route: context.route,
+    backend: LEGACY_BACKEND_LABEL[trace.backend],
+    model: trace.model,
+    access: legacySandboxToAccess(trace.sandbox),
+    tokens: trace.tokens?.total_tokens ?? 0,
+    durMs: trace.duration_ms,
+    status: legacyStatusToRunStatus(trace.status),
+    changed: trace.changed_files ?? 0,
+    outcome: legacyOutcomeToRunOutcome(trace.outcome),
+  };
+  return record;
+}
+
+/** Project a routing trace v2 sidecar into the closed RunRecord using explicit stable identity fields. */
+export function routingTraceV2ToRunRecord(trace: RoutingTraceSidecar, context: TraceProjectionContext): RunRecord {
+  if (!context.storyId) throw new Error("TraceProjectionContext.storyId must be non-empty");
+  if (!context.repo) throw new Error("TraceProjectionContext.repo must be non-empty");
+  validateRoutingTraceSidecar(trace);
+  const route = resolveRoutingTraceV2Route(trace);
+  const model = resolveRoutingTraceV2Model(trace);
+  const record: RunRecord = {
+    id: trace.lineage.run_id,
+    storyId: context.storyId,
+    label: legacyLabel(trace.legacy),
+    repo: context.repo,
+    route,
+    backend: resolveRoutingTraceV2BackendLabel(trace, route),
+    model,
+    access: legacySandboxToAccess(trace.legacy.sandbox),
+    tokens: trace.legacy.tokens?.total_tokens ?? 0,
+    durMs: trace.legacy.duration_ms,
+    status: legacyStatusToRunStatus(trace.status),
+    changed: trace.legacy.changed_files ?? 0,
+    outcome: legacyOutcomeToRunOutcome(trace.legacy.outcome),
+  };
+  return record;
+}
+
+/** Dual-read either legacy schema-4 or routing trace v2 into a strict RunRecord projection. */
+export function traceInputToRunRecord(
+  input: OrchestratorTraceInput,
+  context: TraceProjectionContext & { route?: RouteId }
+): RunRecord {
+  if (isRoutingTraceSidecar(input)) return routingTraceV2ToRunRecord(input, context);
+  if (isLegacySchema4Trace(input)) {
+    if (!context.route || !isRouteId(context.route)) {
+      throw new Error("Legacy schema-4 trace requires an explicit route; refusing backend×mode inference");
+    }
+    return legacySchema4ToRunRecord(input, { ...context, route: context.route });
+  }
+  throw new Error("Unknown orchestrator trace input");
+}
+
+export function traceInputsToRunRecords(
+  inputs: OrchestratorTraceInput[],
+  context: TraceProjectionContext & { route?: RouteId }
+): RunRecord[] {
+  return inputs.map((input) => traceInputToRunRecord(input, context));
+}
+
+/** Apply the configured reader/view mode without mutating persisted sidecar history. */
+export function applyRunTraceView(
+  stored: RunRecord,
+  sidecar: RoutingTraceSidecar | null,
+  mode: RunTraceViewMode
+): RunRecord {
+  if (!sidecar) return stored;
+  if (mode === "v2-aware") {
+    return routingTraceV2ToRunRecord(sidecar, { storyId: stored.storyId, repo: stored.repo });
+  }
+  return legacySchema4ToRunRecord(sidecar.legacy, {
+    storyId: stored.storyId,
+    repo: stored.repo,
+    route: stored.route,
+  });
+}
+
+export function ingestOrchestratorTrace(
+  input: OrchestratorTraceInput,
+  context: TraceProjectionContext & { route?: RouteId }
+): { runRecord: RunRecord; sidecar: RoutingTraceSidecar | null } {
+  if (isRoutingTraceSidecar(input)) {
+    validateRoutingTraceSidecar(input);
+    return { runRecord: routingTraceV2ToRunRecord(input, context), sidecar: input };
+  }
+  if (!context.route || !isRouteId(context.route)) {
+    throw new Error("Legacy schema-4 trace requires an explicit route; refusing backend×mode inference");
+  }
+  return { runRecord: legacySchema4ToRunRecord(input, { ...context, route: context.route }), sidecar: null };
 }
 
 export function traceToRunRecord(trace: OrchestratorTraceRecord, story: Story, route: RouteId): RunRecord {

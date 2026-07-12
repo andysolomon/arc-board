@@ -17,6 +17,7 @@
         "codex-check",
         "composer-check",
         "opus-check",
+        "opus-review",
         "fable"
       ]
     },

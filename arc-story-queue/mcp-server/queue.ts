@@ -10,7 +10,9 @@ import {
   type Plan,
   type Project,
   type QueueNextResult,
+  type RouteId,
   type RunRecord,
+  type RunWithTrace,
   type PrReadiness,
   type ReviewLoop,
   type ReviewVerdict,
@@ -18,6 +20,7 @@ import {
   type Story,
   type StoryDetail,
   isDispatchEligible,
+  isRouteId,
 } from "arc-contracts";
 import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
@@ -31,6 +34,7 @@ import {
 import { storyDigest } from "./story-digest.js";
 import { validateHandoff, validatePlan, validateProject, validateRunRecord, validateStory } from "./validate.js";
 import { ghListIssues, importIssuesToStore, type IssueLister } from "./github-import.js";
+import { ingestOrchestratorTrace, type OrchestratorTraceInput } from "./orchestrator-executor.js";
 
 export interface QueueConfig {
   worktreeRoot: string;
@@ -1188,6 +1192,29 @@ export class QueueManager {
   listRuns(projectId?: string): RunRecord[] {
     const repo = projectId ? this.repoOf(projectId) : undefined;
     return this.store.listRuns().filter((r) => !repo || r.repo === repo);
+  }
+
+  /** Joined run + routing trace read model, optionally scoped to a project's repo. */
+  listRunsWithTrace(projectId?: string): RunWithTrace[] {
+    const repo = projectId ? this.repoOf(projectId) : undefined;
+    return this.store.listRunsWithTrace().filter((entry) => !repo || entry.run.repo === repo);
+  }
+
+  /** Ingest an orchestrator trace for a story and return the projected RunRecord. */
+  ingestTrace(storyId: string, trace: OrchestratorTraceInput, route?: RouteId): RunRecord {
+    const story = this.store.getStory(storyId);
+    if (!story) throw new Error(`Unknown story: ${storyId}`);
+    if (route !== undefined && !isRouteId(route)) {
+      throw new Error(`Legacy trace projection requires an explicit registered route (received ${JSON.stringify(route)})`);
+    }
+    const ingested = ingestOrchestratorTrace(trace, {
+      storyId,
+      repo: story.repo,
+      route,
+    });
+    this.store.persistRunWithSidecar(ingested.runRecord, ingested.sidecar);
+    const projected = this.store.getRunsForStory(storyId).find((run) => run.id === ingested.runRecord.id);
+    return projected ?? ingested.runRecord;
   }
 
   /** Full drawer hydration: story + persisted runs + handoff. */

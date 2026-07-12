@@ -69,6 +69,7 @@ describe("daemon persistence (file-backed SQLite)", () => {
       autoRun: true,
       maxParallel: 5,
       requireOrchestrationPlan: false,
+      runTraceView: "v2-aware",
     });
     await daemon.close();
   }, 60_000);
