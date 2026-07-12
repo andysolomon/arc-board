@@ -269,6 +269,7 @@ describe("ObservabilityView analytics sections", () => {
           model: "composer-2.5",
           route: "composer-implement",
           tokens: 1000,
+          durMs: 100,
           startedAt: now - 60 * 60 * 1000,
         }),
         makeRun({
@@ -276,6 +277,7 @@ describe("ObservabilityView analytics sections", () => {
           model: "gpt-5.5",
           route: "codex-implement",
           tokens: 9000,
+          durMs: 900,
           startedAt: now - 48 * 60 * 60 * 1000,
         }),
       ],
@@ -287,6 +289,10 @@ describe("ObservabilityView analytics sections", () => {
 
     expect(container.querySelector("[data-testid='obs-token-total']")?.textContent).toBe("1,000");
     expect(container.querySelectorAll("[data-testid='obs-model-usage'] .sq-obs-bar")).toHaveLength(1);
+    expect(container.querySelector("[data-testid='obs-dur-values-codex-implement']")).toBeNull();
+    expect(
+      container.querySelector("[data-testid='obs-dur-values-composer-implement']")?.textContent,
+    ).toContain("100ms");
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>("[data-testid='obs-scope-all']")?.click();
@@ -296,7 +302,7 @@ describe("ObservabilityView analytics sections", () => {
     expect(container.querySelectorAll("[data-testid='obs-model-usage'] .sq-obs-bar")).toHaveLength(2);
     expect(
       container.querySelector("[data-testid='obs-dur-values-codex-implement']")?.textContent,
-    ).toBeTruthy();
+    ).toContain("900ms");
   });
 });
 
