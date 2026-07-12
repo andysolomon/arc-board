@@ -1,3 +1,10 @@
+# [2.7.0](https://github.com/andysolomon/arc-board/compare/v2.6.0...v2.7.0) (2026-07-12)
+
+
+### Features
+
+* **W-000075:** consume routing trace v2 ([#160](https://github.com/andysolomon/arc-board/issues/160)) ([49acad8](https://github.com/andysolomon/arc-board/commit/49acad83a5dfe75a612b64e8e1872e6690395654)), closes [andysolomon/arc-orchestrator#125](https://github.com/andysolomon/arc-orchestrator/issues/125)
+
 # [2.6.0](https://github.com/andysolomon/arc-board/compare/v2.5.0...v2.6.0) (2026-07-12)
 
 
