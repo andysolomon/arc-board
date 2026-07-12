@@ -1,3 +1,10 @@
+# [2.5.0](https://github.com/andysolomon/arc-board/compare/v2.4.0...v2.5.0) (2026-07-12)
+
+
+### Features
+
+* **app:** observability analytics — model bars, token donut, route durations (W-000067) ([#158](https://github.com/andysolomon/arc-board/issues/158)) ([a886662](https://github.com/andysolomon/arc-board/commit/a8866626fc50c0ed86c9caa0cdc8eabf20e49031)), closes [#152](https://github.com/andysolomon/arc-board/issues/152)
+
 # [2.4.0](https://github.com/andysolomon/arc-board/compare/v2.3.0...v2.4.0) (2026-07-12)
 
 
