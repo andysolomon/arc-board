@@ -1,3 +1,10 @@
+# [2.2.0](https://github.com/andysolomon/arc-board/compare/v2.1.0...v2.2.0) (2026-07-12)
+
+
+### Features
+
+* **mcp:** record startedAt/finishedAt on run records (W-000065) ([#155](https://github.com/andysolomon/arc-board/issues/155)) ([0fcc671](https://github.com/andysolomon/arc-board/commit/0fcc6716328be1a3fd77f4695d97f8a7b2aef1d2)), closes [#150](https://github.com/andysolomon/arc-board/issues/150)
+
 # [2.1.0](https://github.com/andysolomon/arc-board/compare/v2.0.0...v2.1.0) (2026-07-11)
 
 
