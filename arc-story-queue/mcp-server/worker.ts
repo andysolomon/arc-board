@@ -54,8 +54,10 @@ function runRecord(args: {
   durMs: number;
   outcome?: "accepted" | "escalated" | "rejected" | "unrated";
 }): RunRecord {
+  const finishedAt = Date.now();
+  const startedAt = finishedAt - args.durMs;
   return {
-    id: `run-${args.story.id}-${args.route}-${Date.now()}`,
+    id: `run-${args.story.id}-${args.route}-${finishedAt}`,
     storyId: args.story.id,
     label: args.label,
     repo: args.story.repo,
@@ -65,6 +67,8 @@ function runRecord(args: {
     access: args.access,
     tokens: 0,
     durMs: args.durMs,
+    startedAt,
+    finishedAt,
     status: "completed",
     changed: args.changed,
     outcome: args.outcome ?? "unrated",
