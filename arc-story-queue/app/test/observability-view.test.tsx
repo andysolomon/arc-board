@@ -2,8 +2,14 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { RunRecord } from "arc-contracts";
+import type { RunRecord, Story } from "arc-contracts";
 import { BoardStore, routeColor } from "../src/lib/boardStore";
+import type { BoardStory } from "../src/lib/boardState";
+import {
+  buildObsDagLayout,
+  selectObsStory,
+  sortStoryRuns,
+} from "../src/lib/observabilityDag";
 import {
   activityRoute,
   buildModelUsageBars,
@@ -37,16 +43,43 @@ function makeRun(overrides: Partial<RunRecord> = {}): RunRecord {
   };
 }
 
+function makeStory(overrides: Partial<Story> = {}): BoardStory {
+  return {
+    id: "story-1",
+    wid: "W-000001",
+    type: "story",
+    title: "Observability DAG",
+    repo: repoId,
+    branch: "feat/obs",
+    worktree: "/wt/obs",
+    column: "done",
+    priority: "med",
+    size: "S",
+    epic: "obs",
+    taskClass: "feature",
+    tags: [],
+    description: "DAG test story",
+    criteria: ["works"],
+    draft: false,
+    lines: [],
+    lanes: {},
+    ...overrides,
+  };
+}
+
 function obsStoreStub(opts: {
   runs?: RunRecord[];
+  stories?: BoardStory[];
   liveWorkerCount?: number;
   maxParallel?: number;
 } = {}): BoardStore {
   const runs = opts.runs ?? [];
+  const stories = Object.fromEntries((opts.stories ?? []).map((story) => [story.id, story]));
   const state = {
     activeProjectId: null as const,
     projects: [],
     project: null,
+    stories,
     config: {
       autoRun: false,
       maxParallel: opts.maxParallel ?? 3,
@@ -556,5 +589,199 @@ describe("activityRoute", () => {
         tone: "started",
       }),
     ).toBe("fable");
+  });
+});
+
+describe("ObservabilityView delegation DAG", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("auto-selects the in-progress story over a story with a newer finished run", async () => {
+    const active = makeStory({
+      id: "active",
+      wid: "W-000010",
+      title: "Active story",
+      column: "in_progress",
+    });
+    const done = makeStory({
+      id: "done",
+      wid: "W-000099",
+      title: "Recently finished",
+      column: "done",
+    });
+    const store = obsStoreStub({
+      stories: [active, done],
+      runs: [
+        makeRun({
+          id: "run-active",
+          storyId: "active",
+          label: "Implement",
+          route: "composer-implement",
+          startedAt: 1_000,
+          finishedAt: 2_000,
+        }),
+        makeRun({
+          id: "run-done",
+          storyId: "done",
+          label: "Decide",
+          route: "fable",
+          startedAt: 9_000,
+          finishedAt: 10_000,
+        }),
+      ],
+    });
+
+    await act(async () => {
+      root.render(<ObservabilityView store={store} />);
+    });
+
+    expect(container.querySelector("[data-testid='obs-dag-story-header']")?.textContent).toBe(
+      "W-000010 · Active story",
+    );
+    expect(container.querySelector("[data-testid='obs-dag-node-run-active']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='obs-dag-node-run-done']")).toBeNull();
+  });
+
+  it("falls back to the story with the most recently finished run", async () => {
+    const older = makeStory({ id: "older", wid: "W-000020", title: "Older story" });
+    const newer = makeStory({ id: "newer", wid: "W-000021", title: "Newer story" });
+    const store = obsStoreStub({
+      stories: [older, newer],
+      runs: [
+        makeRun({
+          id: "run-older",
+          storyId: "older",
+          startedAt: 1_000,
+          finishedAt: 2_000,
+        }),
+        makeRun({
+          id: "run-newer",
+          storyId: "newer",
+          startedAt: 8_000,
+          finishedAt: 9_000,
+        }),
+      ],
+    });
+
+    await act(async () => {
+      root.render(<ObservabilityView store={store} />);
+    });
+
+    expect(container.querySelector("[data-testid='obs-dag-story-header']")?.textContent).toBe(
+      "W-000021 · Newer story",
+    );
+  });
+
+  it("renders node metadata and edges for a multi-route story", async () => {
+    const story = makeStory({ id: "flow", wid: "W-000068", title: "Delegation graph" });
+    const runs = [
+      makeRun({
+        id: "run-plan",
+        storyId: "flow",
+        label: "Plan",
+        route: "fable",
+        model: "orchestrator",
+        access: "parent",
+        tokens: 500,
+        durMs: 800,
+        startedAt: 100,
+      }),
+      makeRun({
+        id: "run-explore",
+        storyId: "flow",
+        label: "Explore",
+        route: "codex-explore",
+        model: "gpt-5.4-mini",
+        access: "read-only",
+        tokens: 2200,
+        durMs: 3400,
+        startedAt: 200,
+      }),
+      makeRun({
+        id: "run-build",
+        storyId: "flow",
+        label: "Implement",
+        route: "composer-implement",
+        model: "composer-2.5",
+        access: "write",
+        tokens: 4800,
+        durMs: 9200,
+        startedAt: 300,
+      }),
+      makeRun({
+        id: "run-check",
+        storyId: "flow",
+        label: "Check",
+        route: "codex-check",
+        model: "gpt-5.5",
+        access: "read-only",
+        tokens: 1800,
+        durMs: 4100,
+        startedAt: 400,
+      }),
+      makeRun({
+        id: "run-decide",
+        storyId: "flow",
+        label: "Decide",
+        route: "fable",
+        model: "orchestrator",
+        access: "parent",
+        tokens: 900,
+        durMs: 800,
+        startedAt: 500,
+      }),
+    ];
+    const store = obsStoreStub({ stories: [story], runs });
+
+    await act(async () => {
+      root.render(<ObservabilityView store={store} />);
+    });
+
+    const planNode = container.querySelector("[data-testid='obs-dag-node-run-plan']");
+    expect(planNode?.textContent).toContain("Plan");
+    expect(planNode?.textContent).toContain("parent");
+    expect(planNode?.textContent).toContain("orchestrator");
+    expect(planNode?.textContent).toContain("800ms");
+    expect(planNode?.textContent).toContain("500 tok");
+
+    const buildNode = container.querySelector("[data-testid='obs-dag-node-run-build']");
+    expect(buildNode?.textContent).toContain("write");
+    expect(buildNode?.textContent).toContain("composer-implement");
+
+    expect(container.querySelectorAll("[data-testid^='obs-dag-edge-']")).toHaveLength(4);
+    expect(container.querySelector("[data-testid='obs-dag-legend']")?.textContent).toContain(
+      "handoff",
+    );
+    expect(container.querySelector("[data-testid='obs-dag-legend']")?.textContent).toContain(
+      "read-only",
+    );
+
+    const layout = buildObsDagLayout(sortStoryRuns(runs), story);
+    expect(layout.edges).toHaveLength(4);
+    expect(selectObsStory({ flow: story }, runs)?.id).toBe("flow");
+  });
+
+  it("renders an explicit empty state when the store has no runs", async () => {
+    const store = obsStoreStub({ runs: [], stories: [makeStory()] });
+
+    await act(async () => {
+      root.render(<ObservabilityView store={store} />);
+    });
+
+    const empty = container.querySelector("[data-testid='obs-dag-empty']");
+    expect(empty).not.toBeNull();
+    expect(empty?.textContent).toContain("No delegation runs yet");
+    expect(container.querySelector("[data-testid='obs-dag-scroll']")).toBeNull();
   });
 });

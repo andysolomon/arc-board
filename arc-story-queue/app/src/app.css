@@ -990,6 +990,180 @@ body {
   .sq-obs-grid { grid-template-columns: 1fr; }
 }
 
+.sq-obs-dag {
+  max-width: none;
+}
+.sq-obs-dag__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sq-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--sq-3);
+}
+.sq-obs-dag__title { margin-bottom: 0; }
+.sq-obs-dag__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.sq-obs-dag__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--sq-text-3);
+}
+.sq-obs-dag__legend-item--handoff::before {
+  content: "";
+  width: 12px;
+  height: 0;
+  border-top: 2px dashed rgba(255, 255, 255, 0.5);
+}
+.sq-obs-dag__legend-item--readonly::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(124, 156, 255, 0.16);
+  border: 1px solid var(--sq-readonly);
+}
+.sq-obs-dag__legend-item--write::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(255, 138, 92, 0.16);
+  border: 1px solid var(--sq-write);
+}
+.sq-obs-dag__legend-item--parent::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(207, 216, 255, 0.16);
+  border: 1px solid var(--sq-route-fable);
+}
+.sq-obs-dag__scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.sq-obs-dag__scroll::-webkit-scrollbar { height: 9px; }
+.sq-obs-dag__scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.sq-obs-dag__canvas { min-width: 1200px; }
+.sq-obs-dag__phases {
+  position: relative;
+  height: 22px;
+  margin-bottom: 4px;
+}
+.sq-obs-dag__phase {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.3);
+}
+.sq-obs-dag__graph {
+  position: relative;
+}
+.sq-obs-dag__edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.sq-obs-dag__edge--live {
+  animation: sqObsEdgeDash 0.7s linear infinite;
+}
+@keyframes sqObsEdgeDash {
+  to { stroke-dashoffset: -20; }
+}
+.sq-obs-dag__node {
+  position: absolute;
+  display: flex;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 0 0 transparent;
+}
+.sq-obs-dag__node--live {
+  border-style: dashed;
+  animation: sqObsNodePulse 1.4s ease-in-out infinite;
+}
+@keyframes sqObsNodePulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 18px -4px rgba(245, 181, 68, 0.45); }
+}
+.sq-obs-dag__node-bar {
+  width: 3px;
+  flex: none;
+}
+.sq-obs-dag__node-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 11px 8px 10px;
+  min-width: 0;
+  flex: 1;
+}
+.sq-obs-dag__node-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.sq-obs-dag__node-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--sq-text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sq-obs-dag__node-route {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sq-obs-dag__node-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sq-obs-dag__node-model {
+  font-size: 8.5px;
+  color: rgba(255, 255, 255, 0.42);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.sq-obs-dag__node-dur,
+.sq-obs-dag__node-tok {
+  font-size: 8.5px;
+  color: rgba(255, 255, 255, 0.55);
+  flex: none;
+}
+.sq-obs-dag__node-tok { color: rgba(255, 255, 255, 0.4); }
+
 .sq-runrow {
   display: flex; align-items: center; gap: var(--sq-3);
   padding: var(--sq-3) var(--sq-4); border-bottom: 1px solid var(--sq-border-soft);

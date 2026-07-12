@@ -1038,4 +1038,33 @@ export class BoardStore {
   storiesByColumn(column: Column): BoardStory[] {
     return storiesForColumn(this.state, column);
   }
+
+  /** Dev/e2e hook: hydrate local state without a live daemon. */
+  e2eHydrate(data: {
+    stories?: Story[];
+    runs?: RunRecord[];
+    activeProjectId?: ProjectScope;
+    projects?: Project[];
+    project?: Project | null;
+  }): void {
+    const stories = { ...this.state.stories };
+    for (const story of data.stories ?? []) {
+      const existing = stories[story.id];
+      stories[story.id] = {
+        ...story,
+        lines: existing?.lines ?? [],
+        lanes: existing?.lanes ?? {},
+        activeRoute: existing?.activeRoute,
+        lastWorkerUpdateAt: existing?.lastWorkerUpdateAt,
+      };
+    }
+    this.patch({
+      status: "connected",
+      stories,
+      runs: data.runs ?? this.state.runs,
+      activeProjectId: data.activeProjectId ?? this.state.activeProjectId,
+      projects: data.projects ?? this.state.projects,
+      project: data.project === undefined ? this.state.project : data.project,
+    });
+  }
 }

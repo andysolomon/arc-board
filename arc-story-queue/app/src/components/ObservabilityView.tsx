@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import type { RunRecord } from "arc-contracts";
 import type { ActivityItem, BoardStore } from "../lib/boardStore";
 import { routeColor, routeLabel } from "../lib/boardStore";
+import {
+  buildObsDagLayout,
+  obsStoryHeader,
+  phaseHeaderCenters,
+  selectObsStory,
+} from "../lib/observabilityDag";
 import { formatRelativeTime } from "./ActivityView";
 
 const BROADCAST_LIMIT = 20;
@@ -256,6 +262,153 @@ export function activityRoute(item: ActivityItem): string {
   return bySubject[item.subject] ?? "fable";
 }
 
+function accessClass(access: string): string {
+  const slug = access.replace(/[^a-z]/g, "");
+  if (slug === "write") return "sq-access--write";
+  if (slug === "parent") return "sq-access--parent";
+  return "sq-access--readonly";
+}
+
+function DelegationDagSection({
+  store,
+  allRuns,
+}: {
+  store: BoardStore;
+  allRuns: RunRecord[];
+}) {
+  const state = store.getState();
+  const selectedStory = selectObsStory(state.stories, allRuns);
+  const storyRuns = selectedStory
+    ? allRuns.filter((run) => run.storyId === selectedStory.id)
+    : [];
+  const dag = storyRuns.length > 0 ? buildObsDagLayout(storyRuns, selectedStory) : null;
+  const headers = phaseHeaderCenters();
+
+  return (
+    <section className="sq-block sq-obs-dag" data-testid="obs-delegation-dag">
+      <div className="sq-obs-dag__head">
+        <div className="sq-block__label sq-obs-dag__title" data-testid="obs-dag-story-header">
+          {obsStoryHeader(selectedStory, storyRuns[0]?.storyId)}
+        </div>
+        <div className="sq-obs-dag__legend" data-testid="obs-dag-legend">
+          <span className="sq-obs-dag__legend-item sq-obs-dag__legend-item--handoff">
+            handoff
+          </span>
+          <span className="sq-obs-dag__legend-item sq-obs-dag__legend-item--readonly">
+            read-only
+          </span>
+          <span className="sq-obs-dag__legend-item sq-obs-dag__legend-item--write">write</span>
+          <span className="sq-obs-dag__legend-item sq-obs-dag__legend-item--parent">parent</span>
+        </div>
+      </div>
+
+      {allRuns.length === 0 ? (
+        <div className="sq-empty" data-testid="obs-dag-empty">
+          No delegation runs yet — complete a story to trace agent handoffs here.
+        </div>
+      ) : dag ? (
+        <div className="sq-obs-dag__scroll sq-scroll" data-testid="obs-dag-scroll">
+          <div
+            className="sq-obs-dag__canvas"
+            data-testid="obs-dag-canvas"
+            style={{ width: dag.width }}
+          >
+            <div className="sq-obs-dag__phases" aria-hidden>
+              {headers.map((header) => (
+                <span
+                  key={header.phase}
+                  className="sq-obs-dag__phase"
+                  style={{ left: header.x }}
+                >
+                  {header.label}
+                </span>
+              ))}
+            </div>
+            <div
+              className="sq-obs-dag__graph"
+              style={{ width: dag.width, height: dag.height }}
+            >
+              <svg
+                className="sq-obs-dag__edges"
+                viewBox={`0 0 ${dag.width} ${dag.height}`}
+                aria-hidden
+                data-testid="obs-dag-edges"
+              >
+                <defs>
+                  {dag.markers.map((marker) => (
+                    <marker
+                      key={marker.id}
+                      id={marker.id}
+                      markerWidth="9"
+                      markerHeight="9"
+                      refX="8"
+                      refY="4.5"
+                      orient="auto"
+                    >
+                      <path d="M0,0 L9,4.5 L0,9 Z" fill={marker.color} />
+                    </marker>
+                  ))}
+                </defs>
+                {dag.edges.map((edge) => (
+                  <path
+                    key={edge.id}
+                    d={edge.d}
+                    fill="none"
+                    stroke={edge.color}
+                    strokeWidth={edge.live ? 2.6 : 2}
+                    strokeOpacity={edge.live ? 0.95 : edge.queued ? 0.5 : 0.62}
+                    strokeDasharray={edge.live ? "6 6" : edge.queued ? "2 6" : "6 6"}
+                    markerEnd={`url(#${edge.markerId})`}
+                    className={
+                      edge.live ? "sq-obs-dag__edge sq-obs-dag__edge--live" : "sq-obs-dag__edge"
+                    }
+                    data-testid={`obs-dag-edge-${edge.id}`}
+                  />
+                ))}
+              </svg>
+              {dag.nodes.map((node) => (
+                <div
+                  key={node.run.id}
+                  className={`sq-obs-dag__node${node.live ? " sq-obs-dag__node--live" : ""}`}
+                  data-testid={`obs-dag-node-${node.run.id}`}
+                  style={{
+                    left: node.x,
+                    top: node.y,
+                    width: 168,
+                    height: 66,
+                    borderColor: node.color,
+                  }}
+                  title={`${node.run.label} · ${node.short}`}
+                >
+                  <span
+                    className="sq-obs-dag__node-bar"
+                    style={{ background: node.color }}
+                    aria-hidden
+                  />
+                  <div className="sq-obs-dag__node-body">
+                    <div className="sq-obs-dag__node-head">
+                      <span className="sq-obs-dag__node-label">{node.run.label}</span>
+                      <span className={`sq-access ${accessClass(node.run.access)}`}>
+                        {node.run.access}
+                      </span>
+                    </div>
+                    <span className="sq-mono sq-obs-dag__node-route">{node.short}</span>
+                    <div className="sq-obs-dag__node-meta">
+                      <span className="sq-mono sq-obs-dag__node-model">{node.run.model}</span>
+                      <span className="sq-mono sq-obs-dag__node-dur">{node.durLabel}</span>
+                      <span className="sq-mono sq-obs-dag__node-tok">{node.tokLabel}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function ObservabilityView({ store }: ObservabilityViewProps) {
   const [scope, setScope] = useState<ObsScope>("24h");
   const [, setTick] = useState(0);
@@ -362,6 +515,8 @@ export function ObservabilityView({ store }: ObservabilityViewProps) {
           )}
         </div>
       </section>
+
+      <DelegationDagSection store={store} allRuns={allRuns} />
 
       {total === 0 ? (
         <div className="sq-empty" data-testid="obs-empty-runs">
