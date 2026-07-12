@@ -5,6 +5,9 @@ import { routeColor } from "../lib/boardStore";
 import { formatRelativeTime } from "./ActivityView";
 
 const BROADCAST_LIMIT = 20;
+export const OBS_24H_MS = 24 * 60 * 60 * 1000;
+
+export type ObsScope = "24h" | "all";
 
 interface ObservabilityViewProps {
   store: BoardStore;
@@ -16,6 +19,13 @@ interface ModelGroup {
   accepted: number;
   meanTok: number;
   meanDur: number;
+}
+
+export interface ObsKpiTile {
+  key: string;
+  label: string;
+  value: string;
+  sub: string;
 }
 
 function groupByModel(runs: RunRecord[]): ModelGroup[] {
@@ -43,6 +53,98 @@ function pct(n: number, d: number): number {
   return d === 0 ? 0 : Math.round((n / d) * 100);
 }
 
+export function filterRunsByScope(
+  runs: RunRecord[],
+  scope: ObsScope,
+  now = Date.now(),
+): RunRecord[] {
+  if (scope === "all") return runs;
+  const cutoff = now - OBS_24H_MS;
+  return runs.filter((r) => r.startedAt !== undefined && r.startedAt >= cutoff);
+}
+
+export function computeMeanDuration(runs: RunRecord[]): number {
+  if (runs.length === 0) return 0;
+  return Math.round(runs.reduce((sum, run) => sum + run.durMs, 0) / runs.length);
+}
+
+export function computeP95Duration(runs: RunRecord[]): number {
+  if (runs.length === 0) return 0;
+  const sorted = runs.map((run) => run.durMs).sort((a, b) => a - b);
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * 0.95) - 1));
+  return sorted[idx]!;
+}
+
+export function formatObsDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
+export function buildObsKpiTiles(
+  runs: RunRecord[],
+  opts: {
+    liveWorkerCount?: number;
+    maxParallel?: number;
+  } = {},
+): ObsKpiTile[] {
+  const accepted = runs.filter((run) => run.outcome === "accepted").length;
+  const rated = runs.filter((run) => run.outcome !== "unrated");
+  const acceptPct = rated.length === 0 ? 0 : pct(accepted, rated.length);
+  const totalTokens = runs.reduce((sum, run) => sum + run.tokens, 0);
+  const meanDur = computeMeanDuration(runs);
+  const p95Dur = computeP95Duration(runs);
+  const liveCount = opts.liveWorkerCount;
+  const maxParallel = opts.maxParallel;
+
+  return [
+    {
+      key: "runs",
+      label: "Runs",
+      value: String(runs.length),
+      sub: liveCount !== undefined && liveCount > 0 ? "live · updating" : "delegated",
+    },
+    {
+      key: "acceptance",
+      label: "Acceptance",
+      value: `${acceptPct}%`,
+      sub: `${accepted} / ${rated.length} rated`,
+    },
+    {
+      key: "mean-run",
+      label: "Mean run",
+      value: runs.length === 0 ? "—" : formatObsDuration(meanDur),
+      sub: runs.length === 0 ? "p95 —" : `p95 ${formatObsDuration(p95Dur)}`,
+    },
+    {
+      key: "tokens",
+      label: "Tokens",
+      value: totalTokens.toLocaleString(),
+      sub: "across scoped runs",
+    },
+    {
+      key: "active-sessions",
+      label: "Active sessions",
+      value: liveCount === undefined ? "—" : String(liveCount),
+      sub:
+        liveCount === undefined
+          ? "—"
+          : liveCount === 1
+            ? "1 running now"
+            : `${liveCount} running now`,
+    },
+    {
+      key: "max-parallel",
+      label: "Max parallel",
+      value: maxParallel === undefined ? "—" : String(maxParallel),
+      sub: maxParallel === undefined ? "—" : `cap ${maxParallel}`,
+    },
+  ];
+}
+
 /** Map activity subjects to orchestration routes for broadcast markers. */
 export function activityRoute(item: ActivityItem): string {
   const bySubject: Record<string, string> = {
@@ -55,18 +157,21 @@ export function activityRoute(item: ActivityItem): string {
 }
 
 export function ObservabilityView({ store }: ObservabilityViewProps) {
+  const [scope, setScope] = useState<ObsScope>("24h");
   const [, setTick] = useState(0);
   useEffect(() => store.subscribe(() => setTick((n) => n + 1)), [store]);
 
   const state = store.getState();
-  const runs = store.getRuns();
-  const total = runs.length;
-  const accepted = runs.filter((r) => r.outcome === "accepted").length;
-  const totalTokens = runs.reduce((s, r) => s + r.tokens, 0);
-  const groups = groupByModel(runs);
-  const recent = [...runs].slice(-12).reverse();
+  const allRuns = store.getRuns();
+  const scopedRuns = filterRunsByScope(allRuns, scope);
+  const total = allRuns.length;
+  const groups = groupByModel(scopedRuns);
+  const recent = [...scopedRuns].slice(-12).reverse();
   const broadcast = store.getActivityItems().slice(0, BROADCAST_LIMIT);
   const now = Date.now();
+  const liveWorkerCount = store.liveWorkerCount?.();
+  const maxParallel = store.getConfig?.()?.maxParallel;
+  const kpiTiles = buildObsKpiTiles(scopedRuns, { liveWorkerCount, maxParallel });
 
   return (
     <div className="sq-view">
@@ -81,21 +186,36 @@ export function ObservabilityView({ store }: ObservabilityViewProps) {
                 : "No project attached"}
           </p>
         </div>
+        <div className="sq-scope-toggle" role="group" aria-label="KPI time scope">
+          <button
+            type="button"
+            className={`sq-scope-toggle__btn${scope === "24h" ? " sq-scope-toggle__btn--active" : ""}`}
+            data-testid="obs-scope-24h"
+            aria-pressed={scope === "24h"}
+            onClick={() => setScope("24h")}
+          >
+            24h
+          </button>
+          <button
+            type="button"
+            className={`sq-scope-toggle__btn${scope === "all" ? " sq-scope-toggle__btn--active" : ""}`}
+            data-testid="obs-scope-all"
+            aria-pressed={scope === "all"}
+            onClick={() => setScope("all")}
+          >
+            All
+          </button>
+        </div>
       </header>
 
-      <div className="sq-tiles">
-        <div className="sq-tile">
-          <div className="sq-tile__val sq-mono">{total}</div>
-          <div className="sq-tile__label">Total runs</div>
-        </div>
-        <div className="sq-tile">
-          <div className="sq-tile__val sq-mono">{pct(accepted, total)}%</div>
-          <div className="sq-tile__label">Acceptance</div>
-        </div>
-        <div className="sq-tile">
-          <div className="sq-tile__val sq-mono">{totalTokens.toLocaleString()}</div>
-          <div className="sq-tile__label">Total tokens</div>
-        </div>
+      <div className="sq-tiles sq-tiles--obs" data-testid="obs-kpi-grid">
+        {kpiTiles.map((tile) => (
+          <div key={tile.key} className="sq-tile" data-testid={`obs-kpi-${tile.key}`}>
+            <div className="sq-tile__val sq-mono">{tile.value}</div>
+            <div className="sq-tile__label">{tile.label}</div>
+            <div className="sq-tile__sub">{tile.sub}</div>
+          </div>
+        ))}
       </div>
 
       <section className="sq-block" data-testid="monitor-broadcast">
@@ -142,7 +262,9 @@ export function ObservabilityView({ store }: ObservabilityViewProps) {
       </section>
 
       {total === 0 ? (
-        <div className="sq-empty">No runs yet — complete a story to record traces.</div>
+        <div className="sq-empty" data-testid="obs-empty-runs">
+          No runs yet — complete a story to record traces.
+        </div>
       ) : (
         <>
           <section className="sq-block">

@@ -877,6 +877,17 @@ body {
 }
 .sq-tile__val { font-size: 24px; font-weight: 700; color: var(--sq-text-1); }
 .sq-tile__label { font-size: 11px; color: var(--sq-text-3); margin-top: 4px; }
+.sq-tile__sub { font-size: 10.5px; color: var(--sq-text-4); margin-top: 2px; }
+.sq-tiles--obs .sq-tile { min-width: 140px; }
+.sq-scope-toggle { display: flex; gap: 6px; flex: none; }
+.sq-scope-toggle__btn {
+  font-size: 11.5px; font-weight: 600; color: var(--sq-text-3);
+  background: rgba(255, 255, 255, 0.05); border: 1px solid var(--sq-border-soft);
+  padding: 6px 11px; border-radius: 8px; cursor: pointer;
+}
+.sq-scope-toggle__btn--active {
+  color: #0c0f18; background: var(--sq-accent); border-color: var(--sq-accent);
+}
 
 .sq-table { display: flex; flex-direction: column; }
 .sq-table__head, .sq-table__row {
