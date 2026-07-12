@@ -195,14 +195,29 @@ describe("view read surface", () => {
     const dbPath = join(dir, "cfg.db");
 
     const a = makeManagers(dbPath);
-    expect(a.queue.getConfig()).toEqual({ autoRun: false, maxParallel: 2, requireOrchestrationPlan: true });
-    const merged = a.queue.setConfig({ maxParallel: 4, autoRun: true });
-    expect(merged).toEqual({ autoRun: true, maxParallel: 4, requireOrchestrationPlan: true });
+    expect(a.queue.getConfig()).toEqual({
+      autoRun: false,
+      maxParallel: 2,
+      requireOrchestrationPlan: true,
+      runTraceView: "v2-aware",
+    });
+    const merged = a.queue.setConfig({ maxParallel: 4, autoRun: true, runTraceView: "legacy" });
+    expect(merged).toEqual({
+      autoRun: true,
+      maxParallel: 4,
+      requireOrchestrationPlan: true,
+      runTraceView: "legacy",
+    });
     a.store.close();
 
     // fresh store on the same db path reads back persisted config
     const b = makeManagers(dbPath);
-    expect(b.queue.getConfig()).toEqual({ autoRun: true, maxParallel: 4, requireOrchestrationPlan: true });
+    expect(b.queue.getConfig()).toEqual({
+      autoRun: true,
+      maxParallel: 4,
+      requireOrchestrationPlan: true,
+      runTraceView: "legacy",
+    });
     b.store.close();
   });
 });

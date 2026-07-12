@@ -9,9 +9,14 @@ import {
   type Handoff,
   type IntakeItem,
   type KnownProject,
+  type RoutingTraceSidecar,
   type RunRecord,
+  type RunTraceViewMode,
+  type RunWithTrace,
   type Story,
+  validateRoutingTraceSidecar,
 } from "arc-contracts";
+import { applyRunTraceView } from "./orchestrator-executor.js";
 import { validateRunRecord } from "./validate.js";
 
 export class StoryStore {
@@ -41,6 +46,10 @@ export class StoryStore {
       CREATE TABLE IF NOT EXISTS run_records (
         id TEXT PRIMARY KEY,
         story_id TEXT NOT NULL,
+        data TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS routing_trace_sidecars (
+        run_id TEXT PRIMARY KEY,
         data TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS intake_items (
@@ -217,11 +226,61 @@ export class StoryStore {
       .run(record.id, record.storyId, JSON.stringify(record));
   }
 
+  saveRoutingTraceSidecar(runId: string, sidecar: RoutingTraceSidecar): void {
+    validateRoutingTraceSidecar(sidecar);
+    if (sidecar.lineage.run_id !== runId) {
+      throw new Error(`Routing trace sidecar run_id mismatch (expected ${JSON.stringify(runId)})`);
+    }
+    this.db
+      .prepare(
+        "INSERT INTO routing_trace_sidecars (run_id, data) VALUES (?, ?) ON CONFLICT(run_id) DO UPDATE SET data = excluded.data"
+      )
+      .run(runId, JSON.stringify(sidecar));
+  }
+
+  getRoutingTraceSidecar(runId: string): RoutingTraceSidecar | null {
+    const row = this.db.prepare("SELECT data FROM routing_trace_sidecars WHERE run_id = ?").get(runId) as
+      | { data: string }
+      | undefined;
+    if (!row) return null;
+    const sidecar = JSON.parse(row.data) as RoutingTraceSidecar;
+    validateRoutingTraceSidecar(sidecar);
+    return sidecar;
+  }
+
+  persistRunWithSidecar(record: RunRecord, sidecar: RoutingTraceSidecar | null): void {
+    this.saveRun(record);
+    if (sidecar) this.saveRoutingTraceSidecar(record.id, sidecar);
+  }
+
+  private projectRunRecord(record: RunRecord): RunRecord {
+    const sidecar = this.getRoutingTraceSidecar(record.id);
+    return applyRunTraceView(record, sidecar, this.getRunTraceView());
+  }
+
+  private projectRunWithTrace(record: RunRecord): RunWithTrace {
+    const sidecar = this.getRoutingTraceSidecar(record.id);
+    const mode = this.getRunTraceView();
+    return {
+      run: applyRunTraceView(record, sidecar, mode),
+      routingTrace: mode === "v2-aware" && sidecar ? sidecar : null,
+    };
+  }
+
+  getRunTraceView(): RunTraceViewMode {
+    return this.getConfig().runTraceView;
+  }
+
+  setRunTraceView(mode: RunTraceViewMode): RunTraceViewMode {
+    this.setConfig({ runTraceView: mode });
+    return mode;
+  }
+
   getRunsForStory(storyId: string): RunRecord[] {
     const rows = this.db
       .prepare("SELECT data FROM run_records WHERE story_id = ?")
       .all(storyId) as Array<{ data: string }>;
-    return rows.map((r) => this.parseRunRecord(r.data));
+    return rows.map((r) => this.projectRunRecord(this.parseRunRecord(r.data)));
   }
 
   listRuns(): RunRecord[] {
@@ -230,7 +289,29 @@ export class StoryStore {
 
   getRuns(): RunRecord[] {
     const rows = this.db.prepare("SELECT data FROM run_records").all() as Array<{ data: string }>;
-    return rows.map((r) => this.parseRunRecord(r.data));
+    return rows.map((r) => this.projectRunRecord(this.parseRunRecord(r.data)));
+  }
+
+  listRunsWithTrace(): RunWithTrace[] {
+    const rows = this.db.prepare("SELECT data FROM run_records").all() as Array<{ data: string }>;
+    return rows.map((r) => this.projectRunWithTrace(this.parseRunRecord(r.data)));
+  }
+
+  /** Raw persisted RunRecord without reader/view projection (for rollback replay tests). */
+  getStoredRun(runId: string): RunRecord | null {
+    const row = this.db.prepare("SELECT data FROM run_records WHERE id = ?").get(runId) as
+      | { data: string }
+      | undefined;
+    return row ? this.parseRunRecord(row.data) : null;
+  }
+
+  listRoutingTraceSidecars(): RoutingTraceSidecar[] {
+    const rows = this.db.prepare("SELECT data FROM routing_trace_sidecars").all() as Array<{ data: string }>;
+    return rows.map((row) => {
+      const sidecar = JSON.parse(row.data) as RoutingTraceSidecar;
+      validateRoutingTraceSidecar(sidecar);
+      return sidecar;
+    });
   }
 
   /** Atomically replace the queue order so `ids` occupy positions 0..n-1. */
@@ -268,12 +349,15 @@ export class StoryStore {
       autoRun: false,
       maxParallel: this.defaultMaxParallel,
       requireOrchestrationPlan: true,
+      runTraceView: "v2-aware",
     };
     for (const row of rows) {
       if (row.key === "autoRun") cfg.autoRun = JSON.parse(row.value) as boolean;
       else if (row.key === "maxParallel") cfg.maxParallel = JSON.parse(row.value) as number;
       else if (row.key === "requireOrchestrationPlan") {
         cfg.requireOrchestrationPlan = JSON.parse(row.value) as boolean;
+      } else if (row.key === "runTraceView") {
+        cfg.runTraceView = JSON.parse(row.value) as RunTraceViewMode;
       }
     }
     return cfg;
@@ -296,6 +380,7 @@ export class StoryStore {
     if (patch.requireOrchestrationPlan !== undefined) {
       stmt.run("requireOrchestrationPlan", JSON.stringify(patch.requireOrchestrationPlan));
     }
+    if (patch.runTraceView !== undefined) stmt.run("runTraceView", JSON.stringify(patch.runTraceView));
     return this.getConfig();
   }
 

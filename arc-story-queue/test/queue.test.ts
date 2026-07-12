@@ -336,6 +336,7 @@ describe("QueueManager parallelism law", () => {
       "codex-check",
       "composer-check",
       "opus-check",
+      "opus-review",
     ];
 
     for (const route of readOnlyRoutes) {

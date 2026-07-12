@@ -10,11 +10,11 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { AnnotateOutcome, FsDirListing, Handoff, IntakeDraftProposal, Plan, RunRecord, Story } from "arc-contracts";
+import type { AnnotateOutcome, FsDirListing, Handoff, IntakeDraftProposal, Plan, RouteId, RunRecord, Story } from "arc-contracts";
 import { IntakeManager } from "./intake.js";
 import { StoryLifecycle, type LifecycleResult } from "./lifecycle.js";
 import { PlannerWorker } from "./planner-worker.js";
-import { resolveAnalysisFallbacks, runOrchestrationAnalysis } from "./orchestrator-executor.js";
+import { resolveAnalysisFallbacks, runOrchestrationAnalysis, type OrchestratorTraceInput } from "./orchestrator-executor.js";
 import { QueueManager } from "./queue.js";
 import { SessionRegistry } from "./registry.js";
 import { SseHub } from "./sse.js";
@@ -637,6 +637,41 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "runs.listWithTrace",
+    {
+      title: "Runs list with trace",
+      description:
+        "Joined run records plus optional routing trace sidecars (observability), optionally scoped to a project's repo.",
+      inputSchema: { projectId: z.string().optional() },
+    },
+    async ({ projectId }) => jsonResult(queue.listRunsWithTrace(projectId))
+  );
+
+  server.registerTool(
+    "runs.ingestTrace",
+    {
+      title: "Runs ingest trace",
+      description:
+        "Ingest an orchestrator legacy schema-4 or routing trace v2 for a story; persists RunRecord plus optional v2 sidecar and returns the projected RunRecord.",
+      inputSchema: {
+        id: z.string(),
+        trace: z.record(z.string(), z.unknown()),
+        route: z.string().optional(),
+      },
+    },
+    async ({ id, trace, route }) => {
+      const explicitRoute = route?.trim();
+      return jsonResult(
+        queue.ingestTrace(
+          id,
+          trace as OrchestratorTraceInput,
+          explicitRoute ? (explicitRoute as RouteId) : undefined
+        )
+      );
+    }
+  );
+
+  server.registerTool(
     "story.detail",
     {
       title: "Story detail",
@@ -660,7 +695,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
     "config.get",
     {
       title: "Config get",
-      description: "Read the persisted daemon config (autoRun, maxParallel, requireOrchestrationPlan).",
+      description: "Read the persisted daemon config (autoRun, maxParallel, requireOrchestrationPlan, runTraceView).",
     },
     async () => jsonResult(queue.getConfig())
   );
@@ -674,6 +709,7 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
         autoRun: z.boolean().optional(),
         maxParallel: z.number().int().positive().optional(),
         requireOrchestrationPlan: z.boolean().optional(),
+        runTraceView: z.enum(["v2-aware", "legacy"]).optional(),
       },
     },
     async (args) => jsonResult(queue.setConfig(args))

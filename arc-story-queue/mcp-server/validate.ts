@@ -3,5 +3,6 @@ export {
   validatePlan,
   validateProject,
   validateRunRecord,
+  validateRoutingTraceSidecar,
   validateStory,
 } from "arc-contracts";

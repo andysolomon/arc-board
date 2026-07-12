@@ -84,6 +84,7 @@ function obsStoreStub(opts: {
       autoRun: false,
       maxParallel: opts.maxParallel ?? 3,
       requireOrchestrationPlan: true,
+      runTraceView: "v2-aware",
     },
   };
   const listeners = new Set<() => void>();
