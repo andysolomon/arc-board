@@ -1,3 +1,10 @@
+# [2.6.0](https://github.com/andysolomon/arc-board/compare/v2.5.0...v2.6.0) (2026-07-12)
+
+
+### Features
+
+* **app:** delegation DAG for the active story on Observability (W-000068) ([#159](https://github.com/andysolomon/arc-board/issues/159)) ([4bcc2f3](https://github.com/andysolomon/arc-board/commit/4bcc2f35172a6f92f28d4364ccd29e85b9e79160)), closes [#153](https://github.com/andysolomon/arc-board/issues/153)
+
 # [2.5.0](https://github.com/andysolomon/arc-board/compare/v2.4.0...v2.5.0) (2026-07-12)
 
 
