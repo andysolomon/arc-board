@@ -6,7 +6,10 @@ import type { RunRecord } from "arc-contracts";
 import { BoardStore, routeColor } from "../src/lib/boardStore";
 import {
   activityRoute,
+  buildModelUsageBars,
   buildObsKpiTiles,
+  buildRouteDurationStats,
+  buildTokenDonutSegments,
   computeMeanDuration,
   computeP95Duration,
   filterRunsByScope,
@@ -122,6 +125,184 @@ describe("observability KPI helpers", () => {
     expect(tiles[3]?.value).toBe("6,000");
     expect(tiles[4]?.value).toBe("2");
     expect(tiles[5]?.value).toBe("4");
+  });
+});
+
+describe("observability analytics helpers", () => {
+  it("builds model usage bars sorted by run count with route colors and proportional widths", () => {
+    const runs = [
+      makeRun({ id: "a", model: "composer-2.5", route: "composer-implement" }),
+      makeRun({ id: "b", model: "composer-2.5", route: "composer-implement" }),
+      makeRun({ id: "c", model: "composer-2.5", route: "composer-implement" }),
+      makeRun({ id: "d", model: "gpt-5.5", route: "codex-implement" }),
+      makeRun({ id: "e", model: "opus-4.8", route: "opus-check" }),
+      makeRun({ id: "f", model: "opus-4.8", route: "opus-check" }),
+    ];
+    const bars = buildModelUsageBars(runs);
+    expect(bars.map((bar) => bar.model)).toEqual(["composer-2.5", "opus-4.8", "gpt-5.5"]);
+    expect(bars[0]?.widthPct).toBe(100);
+    expect(bars[1]?.widthPct).toBeCloseTo((2 / 3) * 100, 5);
+    expect(bars[2]?.widthPct).toBeCloseTo((1 / 3) * 100, 5);
+    expect(bars[0]?.color).toBe(routeColor("composer-implement"));
+    expect(bars[1]?.color).toBe(routeColor("opus-check"));
+    expect(bars[2]?.color).toBe(routeColor("codex-implement"));
+  });
+
+  it("builds token donut segments with fractions that sum to 1", () => {
+    const runs = [
+      makeRun({ id: "a", route: "composer-implement", tokens: 3000 }),
+      makeRun({ id: "b", route: "codex-implement", tokens: 1000 }),
+      makeRun({ id: "c", route: "opus-check", tokens: 1000 }),
+    ];
+    const { segments, totalTokens } = buildTokenDonutSegments(runs);
+    expect(totalTokens).toBe(5000);
+    expect(segments.map((segment) => segment.route)).toEqual([
+      "composer-implement",
+      "codex-implement",
+      "opus-check",
+    ]);
+    const sum = segments.reduce((acc, segment) => acc + segment.fraction, 0);
+    expect(sum).toBeCloseTo(1, 3);
+    expect(segments[0]?.fraction).toBeCloseTo(0.6, 3);
+    expect(segments[1]?.fraction).toBeCloseTo(0.2, 3);
+    expect(segments[2]?.fraction).toBeCloseTo(0.2, 3);
+    for (const segment of segments) {
+      expect(Number.isFinite(segment.offset)).toBe(true);
+      expect(segment.dash).not.toMatch(/NaN|Infinity/);
+    }
+  });
+
+  it("returns zero-token donut segments without invalid SVG values", () => {
+    const runs = [makeRun({ id: "a", tokens: 0 }), makeRun({ id: "b", tokens: 0 })];
+    const { segments, totalTokens } = buildTokenDonutSegments(runs);
+    expect(totalTokens).toBe(0);
+    expect(segments.every((segment) => segment.fraction === 0)).toBe(true);
+    expect(segments.every((segment) => Number.isFinite(segment.offset))).toBe(true);
+  });
+
+  it("computes per-route mean and p95 durations for known distributions", () => {
+    const runs = [
+      makeRun({ id: "a", route: "composer-implement", durMs: 100 }),
+      makeRun({ id: "b", route: "composer-implement", durMs: 200 }),
+      makeRun({ id: "c", route: "composer-implement", durMs: 300 }),
+      makeRun({ id: "d", route: "codex-implement", durMs: 400 }),
+      makeRun({ id: "e", route: "codex-implement", durMs: 500 }),
+    ];
+    const stats = buildRouteDurationStats(runs);
+    const composer = stats.find((row) => row.route === "composer-implement");
+    const codex = stats.find((row) => row.route === "codex-implement");
+    expect(composer?.meanMs).toBe(200);
+    expect(composer?.p95Ms).toBe(300);
+    expect(codex?.meanMs).toBe(450);
+    expect(codex?.p95Ms).toBe(500);
+    expect(stats[0]?.route).toBe("codex-implement");
+  });
+});
+
+describe("ObservabilityView analytics sections", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("renders model usage bars with route colors and proportional widths", async () => {
+    const now = Date.now();
+    const store = obsStoreStub({
+      runs: [
+        makeRun({
+          id: "a",
+          model: "composer-2.5",
+          route: "composer-implement",
+          startedAt: now - 60 * 60 * 1000,
+        }),
+        makeRun({
+          id: "b",
+          model: "composer-2.5",
+          route: "composer-implement",
+          startedAt: now - 50 * 60 * 1000,
+        }),
+        makeRun({
+          id: "c",
+          model: "gpt-5.5",
+          route: "codex-implement",
+          startedAt: now - 40 * 60 * 1000,
+        }),
+      ],
+    });
+
+    await act(async () => {
+      root.render(<ObservabilityView store={store} />);
+    });
+
+    const models = [...container.querySelectorAll("[data-testid='obs-model-usage'] .sq-obs-bar")].map(
+      (row) => row.getAttribute("data-testid")?.replace("obs-model-bar-", ""),
+    );
+    expect(models).toEqual(["composer-2.5", "gpt-5.5"]);
+
+    const topFill = container.querySelector(
+      "[data-testid='obs-model-bar-fill-composer-2.5']",
+    ) as HTMLElement;
+    const secondFill = container.querySelector(
+      "[data-testid='obs-model-bar-fill-gpt-5.5']",
+    ) as HTMLElement;
+    expect(topFill.style.width).toBe("100%");
+    expect(secondFill.style.width).toBe("50%");
+    expect(topFill.style.background).toBe(routeColor("composer-implement"));
+    expect(secondFill.style.background).toBe(routeColor("codex-implement"));
+  });
+
+  it("scopes analytics sections to 24h vs All using startedAt", async () => {
+    const now = Date.now();
+    const store = obsStoreStub({
+      runs: [
+        makeRun({
+          id: "recent",
+          model: "composer-2.5",
+          route: "composer-implement",
+          tokens: 1000,
+          durMs: 100,
+          startedAt: now - 60 * 60 * 1000,
+        }),
+        makeRun({
+          id: "old",
+          model: "gpt-5.5",
+          route: "codex-implement",
+          tokens: 9000,
+          durMs: 900,
+          startedAt: now - 48 * 60 * 60 * 1000,
+        }),
+      ],
+    });
+
+    await act(async () => {
+      root.render(<ObservabilityView store={store} />);
+    });
+
+    expect(container.querySelector("[data-testid='obs-token-total']")?.textContent).toBe("1,000");
+    expect(container.querySelectorAll("[data-testid='obs-model-usage'] .sq-obs-bar")).toHaveLength(1);
+    expect(container.querySelector("[data-testid='obs-dur-values-codex-implement']")).toBeNull();
+    expect(
+      container.querySelector("[data-testid='obs-dur-values-composer-implement']")?.textContent,
+    ).toContain("100ms");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-testid='obs-scope-all']")?.click();
+    });
+
+    expect(container.querySelector("[data-testid='obs-token-total']")?.textContent).toBe("10,000");
+    expect(container.querySelectorAll("[data-testid='obs-model-usage'] .sq-obs-bar")).toHaveLength(2);
+    expect(
+      container.querySelector("[data-testid='obs-dur-values-codex-implement']")?.textContent,
+    ).toContain("900ms");
   });
 });
 
