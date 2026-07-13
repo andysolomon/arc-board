@@ -47,6 +47,8 @@ flowchart LR
   R -->|max rounds exceeded| E[escalated]
   E -->|story.merge override| D
   R -->|PR closed unmerged reconcile| B[Backlog]
-  IP -->|issue closed reconcile| X((purged))
+  B -->|issue closed reconcile| X((purged))
+  Q -->|issue closed reconcile| X
+  IP -->|issue closed reconcile| X
   IP -->|story.abandon| B
 ```

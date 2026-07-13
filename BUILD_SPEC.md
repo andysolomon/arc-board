@@ -113,9 +113,9 @@ read-only routes never lock · writes serialize per worktree (second `acquireWri
 
 ### Lifecycle & parallelism — current behavior (post W-000027–W-000031)
 
-- **Worktree cleanup policy** — retain on `story.complete` (worktree holds the PR branch until review); remove on `story.merge`, on merged-PR reconcile (`reconcileReviewPrs`), and on issue-close purge (`reconcileInProgressIssues`); remove on explicit `story.abandon`; **preserve** on closed-unmerged PR eviction to Backlog (worktree kept for recovery).
+- **Worktree cleanup policy** — retain on `story.complete` (worktree holds the PR branch until review); remove on `story.merge`, on merged-PR reconcile (`reconcileReviewPrs`), and on issue-close purge (`reconcileInProgressIssues`, covering GitHub-backed Backlog, Queued, and In Progress stories); remove on explicit `story.abandon`; **preserve** on closed-unmerged PR eviction to Backlog (worktree kept for recovery).
 - **Parallelism** — global cap `maxParallel` (default 2, `config.get` / `config.set` `{ autoRun, maxParallel }`) limits concurrent `in_progress` stories. Per-label mutex groups add a second constraint: `epic:<name>` and `parallel-group:<name>` labels on `story.tags` (from GitHub issue labels) define mutex keys; `parallel-group:` overrides `epic:` when both are present. `queue.next` skips ineligible stories and dispatches the next eligible one — the queue does not stall. Block reason: `waiting · <key> in progress`.
-- **GitHub reconcile timer** — one shared daemon timer (`prReconcileIntervalMs`, default 60_000 ms; `0` disables; programmatic `DaemonOptions` field only — no CLI flag or env var). Every tick runs both `reconcileReviewPrs()` and `reconcileInProgressIssues()` in `QueueManager`.
+- **GitHub reconcile timer** — one shared daemon timer (`prReconcileIntervalMs`, default 60_000 ms; `0` disables; programmatic `DaemonOptions` field only — no CLI flag or env var). Every tick runs both `reconcileReviewPrs()` and `reconcileInProgressIssues()` in `QueueManager`; closed GitHub-backed issues in Backlog, Queued, or In Progress are purged and queued entries are removed from queue eligibility.
 
 ### Parallelism: global cap vs label mutex groups
 

@@ -843,10 +843,11 @@ export class QueueManager {
     return trimmed;
   }
 
-  private isGithubInProgressIssue(story: Story): boolean {
+  private isGithubReconciledIssue(story: Story): boolean {
     const issue = story.issue?.trim();
+    const reconciledColumn = story.column === "backlog" || story.column === "queued" || story.column === "in_progress";
     const isGithubRepo = !!story.repo && !story.repo.startsWith("local/");
-    return story.column === "in_progress" && !!issue && isGithubRepo;
+    return reconciledColumn && !!issue && isGithubRepo && story.draft !== true;
   }
 
   private viewIssue(story: Story): { state: string } {
@@ -860,9 +861,9 @@ export class QueueManager {
 
   async reconcileInProgressIssues(): Promise<IssueReconcileResult> {
     const result: IssueReconcileResult = { checked: 0, purged: [], errors: [] };
-    const inProgressStories = this.store.listStories().filter((story) => this.isGithubInProgressIssue(story));
+    const issueStories = this.store.listStories().filter((story) => this.isGithubReconciledIssue(story));
 
-    for (const story of inProgressStories) {
+    for (const story of issueStories) {
       result.checked += 1;
       try {
         const issue = this.viewIssue(story);
