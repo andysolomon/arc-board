@@ -66,6 +66,13 @@
     "issue": { "type": ["string", "null"] },
     "pr": { "type": ["string", "null"] },
     "prState": { "enum": ["open", "merged", "closed"] },
+    "githubProjectItemId": { "type": ["string", "null"] },
+    "githubBoardColumn": {
+      "anyOf": [
+        { "enum": ["backlog", "queued", "in_progress", "review", "done"] },
+        { "type": "null" }
+      ]
+    },
     "annotation": { "enum": ["accepted", "rejected", "blocked", "verification-failed", "escalated"] },
     "plan": {
       "anyOf": [

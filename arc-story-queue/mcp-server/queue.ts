@@ -3,8 +3,13 @@ import { existsSync, mkdirSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import {
   routeNeedsWriteLock,
+  normalizeGithubBoardBinding,
+  validateGithubBoardBinding,
+  isGithubBoardRemoteBusy,
   type AnnotateOutcome,
   type AppConfig,
+  type Column,
+  type GithubBoardBinding,
   type Handoff,
   type KnownProject,
   type Plan,
@@ -26,6 +31,7 @@ import type { SessionRegistry } from "./registry.js";
 import type { SseHub } from "./sse.js";
 import type { StoryStore } from "./store.js";
 import { conventionalTitle } from "./conventional-title.js";
+import { ensureGithubBoard, columnFromProjectItem, issueUrlForStory, listGithubProjectItems, ownerFromRepo, syncStoryColumnToGithubBoard, type GhRunner } from "./github-projects.js";
 import {
   boardActionErrorFromMergeFailure,
   throwMergeError,
@@ -51,6 +57,10 @@ export type CommandRunner = (
   options?: ExecFileSyncOptions
 ) => string | Buffer;
 
+function isLocallyReserved(story: Story): boolean {
+  return story.column === "in_progress" && !!story.worktree;
+}
+
 export interface PrReconcileResult {
   checked: number;
   merged: string[];
@@ -62,6 +72,13 @@ export interface IssueReconcileResult {
   checked: number;
   purged: string[];
   errors: Array<{ id: string; message: string }>;
+}
+
+export interface GithubBoardReconcileResult {
+  checked: number;
+  updated: string[];
+  reflected: string[];
+  errors: Array<{ repo?: string; id?: string; message: string }>;
 }
 
 export interface DoneRetentionResult {
@@ -178,6 +195,7 @@ export class QueueManager {
     });
     const story = candidates.find(
       (candidate) =>
+        !isGithubBoardRemoteBusy(candidate) &&
         (!requireOrchestrationPlan || candidate.orchestration?.status === "planned") &&
         isDispatchEligible(candidate, inProgress, maxParallel)
     );
@@ -202,6 +220,7 @@ export class QueueManager {
     story.column = "in_progress";
     this.store.upsertStory(story);
     this.store.dequeue(story.id);
+    this.syncGithubBoardForStory(story);
 
     if (!this.acquireWrite(wtDir, story.id)) {
       throw new Error(`Write lock already held for worktree ${wtDir}`);
@@ -295,6 +314,8 @@ export class QueueManager {
       this.finishMergedStory(s);
     } else if (ship === "merge" && this.isLocalPr(args.pr)) {
       this.finishMergedStory(s);
+    } else {
+      this.syncGithubBoardForStory(s);
     }
 
     return { ok: true };
@@ -472,6 +493,7 @@ export class QueueManager {
       return this.finishMergedStory(story);
     }
 
+    this.syncGithubBoardForStory(story);
     return story;
   }
 
@@ -759,6 +781,7 @@ export class QueueManager {
     story.worktree = "";
     story.doneAt = Date.now();
     this.store.upsertStory(story);
+    this.syncGithubBoardForStory(story);
     return story;
   }
 
@@ -769,6 +792,7 @@ export class QueueManager {
     story.prState = "closed";
     story.annotation = "escalated";
     this.store.upsertStory(story);
+    this.syncGithubBoardForStory(story);
     return story;
   }
 
@@ -860,6 +884,111 @@ export class QueueManager {
     }
 
     return result;
+  }
+
+  /**
+   * Inbound GitHub Project Status reconcile:
+   * - refresh story.githubBoardColumn
+   * - reflect remote Status onto non-reserved local columns
+   * - never steal an in_progress reservation with a worktree
+   */
+  async reconcileGithubBoards(): Promise<GithubBoardReconcileResult> {
+    const result: GithubBoardReconcileResult = { checked: 0, updated: [], reflected: [], errors: [] };
+    const bindings = this.store.listGithubBoardBindings();
+
+    for (const binding of bindings) {
+      if (!binding.githubProjectNumber) continue;
+      try {
+        const owner = ownerFromRepo(binding.repo);
+        const items = listGithubProjectItems(
+          owner,
+          binding.githubProjectNumber,
+          (file, args, options) => this.runCommand(file, args, options)
+        );
+        const byUrl = new Map(
+          items
+            .map((item) => {
+              const url = item.content?.url?.replace(/\/$/, "").toLowerCase();
+              return url ? ([url, item] as const) : null;
+            })
+            .filter((entry): entry is readonly [string, (typeof items)[number]] => !!entry)
+        );
+
+        const stories = this.store.listStories().filter((s) => s.repo === binding.repo && s.issue);
+        for (const story of stories) {
+          result.checked += 1;
+          const issueUrl = issueUrlForStory(story.repo, story.issue);
+          if (!issueUrl) continue;
+          const item = byUrl.get(issueUrl.replace(/\/$/, "").toLowerCase());
+          if (!item) continue;
+
+          const remoteColumn = columnFromProjectItem(item);
+          if (!remoteColumn) continue;
+
+          let changed = false;
+          if (story.githubBoardColumn !== remoteColumn || story.githubProjectItemId !== item.id) {
+            story.githubBoardColumn = remoteColumn;
+            story.githubProjectItemId = item.id;
+            changed = true;
+          }
+
+          if (!isLocallyReserved(story) && remoteColumn !== "in_progress" && story.column !== remoteColumn) {
+            this.applyRemoteColumnReflection(story, remoteColumn);
+            result.reflected.push(story.id);
+            changed = true;
+          }
+
+          if (changed) {
+            this.store.upsertStory(story);
+            result.updated.push(story.id);
+            await this.sse.emitEvent({
+              kind: story.column === "queued" ? "queued" : story.column === "done" ? "done" : "escalated",
+              id: story.id,
+              wid: story.wid,
+              title: story.title,
+              column: story.column,
+            });
+          }
+        }
+
+        this.linkGithubBoard({
+          repo: binding.repo,
+          githubProjectId: binding.githubProjectId,
+          lastSyncedAt: Date.now(),
+          lastSyncError: null,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        result.errors.push({ repo: binding.repo, message });
+        this.linkGithubBoard({
+          repo: binding.repo,
+          githubProjectId: binding.githubProjectId,
+          lastSyncError: message,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /** Move a non-reserved story to match remote Status (never to bare in_progress). */
+  private applyRemoteColumnReflection(story: Story, remote: Column): void {
+    if (remote === "in_progress") return;
+    if (remote === "queued") {
+      story.column = "queued";
+      this.store.enqueue(story.id);
+      return;
+    }
+    if (remote === "backlog") {
+      this.store.dequeue(story.id);
+      story.column = "backlog";
+      return;
+    }
+    if (remote === "review" || remote === "done") {
+      this.store.dequeue(story.id);
+      story.column = remote;
+      if (remote === "done") story.doneAt = story.doneAt ?? Date.now();
+    }
   }
 
   async reconcileDoneRetention(retentionMs: number): Promise<DoneRetentionResult> {
@@ -1015,6 +1144,7 @@ export class QueueManager {
     story.column = "backlog";
     story.worktree = "";
     this.store.upsertStory(story);
+    this.syncGithubBoardForStory(story);
     return story;
   }
 
@@ -1037,6 +1167,119 @@ export class QueueManager {
 
   forgetKnownProject(path: string): { forgotten: boolean } {
     return { forgotten: this.store.forgetKnownProject(path) };
+  }
+
+  /**
+   * Resolve the durable GitHub Project binding for a repo.
+   * Pass either `repo` (`owner/name`) or an attached `projectId`.
+   */
+  getGithubBoardBinding(args: { repo?: string; projectId?: string }): GithubBoardBinding | null {
+    const repo = this.resolveGithubBoardRepo(args);
+    return this.store.getGithubBoardBinding(repo);
+  }
+
+  /**
+   * Link (or update) a GitHub Project binding for a repo.
+   * Does not call GitHub — identity and field IDs are supplied by the caller / ensure slice.
+   */
+  linkGithubBoard(
+    input: Partial<GithubBoardBinding> & { repo?: string; projectId?: string; githubProjectId: string }
+  ): GithubBoardBinding {
+    const repo = this.resolveGithubBoardRepo(input);
+    const existing = this.store.getGithubBoardBinding(repo);
+    const binding = normalizeGithubBoardBinding(
+      {
+        ...input,
+        repo,
+        githubProjectId: input.githubProjectId,
+      },
+      existing
+    );
+    validateGithubBoardBinding(binding);
+    return this.store.upsertGithubBoardBinding(binding);
+  }
+
+  unlinkGithubBoard(args: { repo?: string; projectId?: string }): { unlinked: boolean } {
+    const repo = this.resolveGithubBoardRepo(args);
+    return { unlinked: this.store.deleteGithubBoardBinding(repo) };
+  }
+
+  /**
+   * Find or create the GitHub Project for a repo and persist Status/Arc Column field IDs.
+   * Requires `autoCreate: true` (arg or binding) to create when missing.
+   */
+  ensureGithubBoard(args: {
+    repo?: string;
+    projectId?: string;
+    autoCreate?: boolean;
+    projectNumber?: number;
+    skipLink?: boolean;
+    runner?: GhRunner;
+  }): GithubBoardBinding {
+    const repo = this.resolveGithubBoardRepo(args);
+    const existing = this.store.getGithubBoardBinding(repo);
+    const result = ensureGithubBoard({
+      repo,
+      existing,
+      autoCreate: args.autoCreate,
+      projectNumber: args.projectNumber,
+      skipLink: args.skipLink,
+      runner: args.runner ?? ((file, cmdArgs, options) => this.runCommand(file, cmdArgs, options)),
+    });
+    return this.linkGithubBoard({
+      ...result.binding,
+      repo,
+      githubProjectId: result.binding.githubProjectId,
+    });
+  }
+
+  /**
+   * Best-effort outbound sync of story.column → GitHub Project Status.
+   * Never throws; records lastSyncError on the binding when sync fails.
+   */
+  syncGithubBoardForStory(story: Story): void {
+    try {
+      const binding = this.store.getGithubBoardBinding(story.repo);
+      if (!binding?.statusFieldId || !binding.statusOptionIds) return;
+      const issueUrl = issueUrlForStory(story.repo, story.issue);
+      if (!issueUrl) return;
+
+      const result = syncStoryColumnToGithubBoard({
+        binding,
+        column: story.column,
+        issueUrl,
+        itemId: story.githubProjectItemId,
+        runner: (file, cmdArgs, options) => this.runCommand(file, cmdArgs, options),
+      });
+
+      if (story.githubProjectItemId !== result.itemId) {
+        story.githubProjectItemId = result.itemId;
+        this.store.upsertStory(story);
+      }
+
+      this.linkGithubBoard({
+        repo: binding.repo,
+        githubProjectId: binding.githubProjectId,
+        lastSyncedAt: Date.now(),
+        lastSyncError: null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const binding = this.store.getGithubBoardBinding(story.repo);
+      if (binding) {
+        this.linkGithubBoard({
+          repo: binding.repo,
+          githubProjectId: binding.githubProjectId,
+          lastSyncError: message,
+        });
+      }
+    }
+  }
+
+  private resolveGithubBoardRepo(args: { repo?: string; projectId?: string }): string {
+    if (args.repo?.trim()) return args.repo.trim();
+    if (args.projectId?.trim()) return this.repoOf(args.projectId.trim());
+    throw new Error("repo or projectId is required");
   }
 
   async detach(projectId: string): Promise<Project> {
@@ -1094,6 +1337,7 @@ export class QueueManager {
     story.column = "queued";
     this.store.enqueue(id);
     this.store.upsertStory(story);
+    this.syncGithubBoardForStory(story);
     return story;
   }
 
@@ -1139,6 +1383,7 @@ export class QueueManager {
     story.column = "backlog";
     story.orchestration = { status: "unplanned" };
     this.store.upsertStory(story);
+    this.syncGithubBoardForStory(story);
     return story;
   }
 

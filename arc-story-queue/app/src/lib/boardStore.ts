@@ -3,6 +3,7 @@ import {
   type AppConfig,
   type Column,
   type FsDirListing,
+  type GithubBoardBinding,
   type IntakeDraftProposal,
   type IntakeDraftSource,
   type IntakeGenerateResult,
@@ -469,6 +470,38 @@ export class BoardStore {
       `Imported ${stories.length} issue(s) from ${repo}`
     );
     return stories;
+  }
+
+  async getGithubBoardBinding(args: {
+    repo?: string;
+    projectId?: string;
+  }): Promise<GithubBoardBinding | null> {
+    return this.sync.call<GithubBoardBinding | null>("project.github_board.get", args);
+  }
+
+  async ensureGithubBoard(args: {
+    repo?: string;
+    projectId?: string;
+    autoCreate?: boolean;
+    projectNumber?: number;
+  }): Promise<GithubBoardBinding> {
+    const binding = await this.sync.call<GithubBoardBinding>("project.github_board.ensure", args);
+    this.notify("success", `GitHub Project linked: ${binding.githubProjectTitle ?? binding.githubProjectId}`);
+    return binding;
+  }
+
+  async linkGithubBoard(args: {
+    repo?: string;
+    projectId?: string;
+    githubProjectId: string;
+    githubProjectNumber?: number;
+    githubProjectUrl?: string;
+    githubProjectTitle?: string;
+    autoCreate?: boolean;
+  }): Promise<GithubBoardBinding> {
+    const binding = await this.sync.call<GithubBoardBinding>("project.github_board.link", args);
+    this.notify("success", `GitHub Project binding saved for ${binding.repo}`);
+    return binding;
   }
 
   private projectListWith(project: Project): Project[] {

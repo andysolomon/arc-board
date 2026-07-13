@@ -1,5 +1,6 @@
 import { ROUTES, routeColor } from "arc-contracts";
 import type { BoardStore } from "../lib/boardStore";
+import { GithubBoardSection } from "./GithubBoardSection";
 
 interface OrchestratorViewProps {
   store: BoardStore;
@@ -40,6 +41,8 @@ export function OrchestratorView({ store }: OrchestratorViewProps) {
           </span>
         </div>
       </section>
+
+      <GithubBoardSection store={store} />
 
       <section className="sq-block">
         <div className="sq-block__label">Rules</div>
