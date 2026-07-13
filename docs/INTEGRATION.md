@@ -187,13 +187,13 @@ For stories in **Review** with a real GitHub PR (`prState: open`):
 
 `local://` sentinel PRs are excluded. Review does not hold closed PRs indefinitely.
 
-### In-progress issue reconcile (issue-close purge)
+### Backlog/queued/in-progress issue reconcile (issue-close purge)
 
-For stories in **In Progress** with a linked GitHub issue (real repo, not `local/...`):
+For non-draft stories in **Backlog**, **Queued**, or **In Progress** with a linked GitHub issue (real repo, not `local/...`):
 
 | GitHub issue state | Board outcome | Worktree |
 |---|---|---|
-| **CLOSED** | Story **deleted** entirely (`dequeue` + `deleteStory`), write lock released, SSE `purged` | Removed |
+| **CLOSED** | Story **deleted** entirely (`dequeue` + `deleteStory`), removed from queue eligibility, write lock released if held, SSE `purged` | Removed when present |
 
 Closed GitHub issues delete the story; closed unmerged PRs evict to Backlog. That asymmetry is intentional.
 
@@ -218,7 +218,9 @@ flowchart LR
   R -->|max rounds exceeded| E[escalated]
   E -->|story.merge override| D
   R -->|PR closed unmerged reconcile| B[Backlog]
-  IP -->|issue closed reconcile| X((purged))
+  B -->|issue closed reconcile| X((purged))
+  Q -->|issue closed reconcile| X
+  IP -->|issue closed reconcile| X
   IP -->|story.abandon| B
 ```
 
@@ -228,13 +230,13 @@ Side paths run on the shared reconcile timer (default every 60s) via `gh issue v
 
 Run these from the project repo while the daemon is up:
 
-**Issue state vs In Progress (purge path):**
+**Issue state vs Backlog / Queued / In Progress (purge path):**
 
 ```bash
 gh issue view <n> --json state,title
 ```
 
-If `state` is `CLOSED` but the story is still in In Progress, wait for the next reconcile tick (or check `prReconcileIntervalMs` is not `0`). After reconcile, the story should be gone and its worktree removed.
+If `state` is `CLOSED` but the story is still in Backlog, Queued, or In Progress, wait for the next reconcile tick (or check `prReconcileIntervalMs` is not `0`). After reconcile, the story should be gone; queued stories are removed from queue eligibility and in-progress worktrees are removed.
 
 **PR state vs Review column:**
 

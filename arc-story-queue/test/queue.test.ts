@@ -91,7 +91,7 @@ function makeQueue(
     { worktreeRoot: "/tmp/wt", maxParallel, ...queueConfig },
     { store, registry, sse, commandRunner }
   );
-  return { store, registry, queue };
+  return { store, registry, sse, queue };
 }
 
 const tmpDirs: string[] = [];
@@ -848,7 +848,9 @@ describe("QueueManager parallelism law", () => {
       }
       return execFileSync(file, args, options);
     };
-    const { store, queue } = makeQueue(2, runner);
+    const { store, sse, queue } = makeQueue(2, runner);
+    const events: unknown[] = [];
+    sse.subscribeLifecycle((event) => events.push(event));
     const { worktree } = makeGitFixture();
     const story = makeStory({
       column: "in_progress",
@@ -865,6 +867,82 @@ describe("QueueManager parallelism law", () => {
     expect(store.getStory(story.id)).toBeNull();
     expect(existsSync(worktree)).toBe(false);
     expect(queue.isWriteLocked(worktree)).toBe(false);
+    expect(events).toContainEqual({ kind: "purged", id: story.id, wid: story.wid, title: story.title });
+  });
+
+  it("reconcileInProgressIssues() purges backlog stories whose issue is closed", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        return Buffer.from(JSON.stringify({ state: "CLOSED" }));
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, sse, queue } = makeQueue(2, runner);
+    const events: unknown[] = [];
+    sse.subscribeLifecycle((event) => events.push(event));
+    const story = makeStory({
+      id: "story-backlog",
+      column: "backlog",
+      issue: "https://github.com/test/repo/issues/17",
+    });
+    store.upsertStory(story);
+
+    const result = await queue.reconcileInProgressIssues();
+
+    expect(result).toEqual({ checked: 1, purged: [story.id], errors: [] });
+    expect(ghCalls).toEqual([["issue", "view", "17", "--json", "state", "--repo", "test/repo"]]);
+    expect(store.getStory(story.id)).toBeNull();
+    expect(events).toContainEqual({ kind: "purged", id: story.id, wid: story.wid, title: story.title });
+  });
+
+  it("reconcileInProgressIssues() dequeues and purges queued stories whose issue is closed", async () => {
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") return Buffer.from(JSON.stringify({ state: "CLOSED" }));
+      return execFileSync(file, args, options);
+    };
+    const { store, registry, queue } = makeQueue(2, runner);
+    const project = attachProject(registry, "/repo");
+    const story = makeStory({
+      id: "story-queued",
+      column: "queued",
+      issue: "https://github.com/test/repo/issues/18",
+    });
+    store.upsertStory(story);
+    store.enqueue(story.id);
+
+    const result = await queue.reconcileInProgressIssues();
+
+    expect(result).toEqual({ checked: 1, purged: [story.id], errors: [] });
+    expect(store.getStory(story.id)).toBeNull();
+    expect(store.queueIds()).not.toContain(story.id);
+    expect(queue.listQueue(project.id)).toEqual([]);
+    expect((await queue.next(project.id)).story).toBeNull();
+  });
+
+  it("reconcileInProgressIssues() leaves open backlog issue stories untouched", async () => {
+    const ghCalls: string[][] = [];
+    const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
+      if (file === "gh") {
+        ghCalls.push([...args]);
+        return Buffer.from(JSON.stringify({ state: "OPEN" }));
+      }
+      return execFileSync(file, args, options);
+    };
+    const { store, queue } = makeQueue(2, runner);
+    const story = makeStory({
+      id: "story-backlog-open",
+      column: "backlog",
+      issue: "https://github.com/test/repo/issues/19",
+    });
+    store.upsertStory(story);
+
+    const result = await queue.reconcileInProgressIssues();
+
+    expect(result).toEqual({ checked: 1, purged: [], errors: [] });
+    expect(store.getStory(story.id)).toMatchObject({ id: story.id, column: "backlog" });
+    expect(ghCalls).toEqual([["issue", "view", "19", "--json", "state", "--repo", "test/repo"]]);
   });
 
   it("reconcileInProgressIssues() leaves open-issue stories untouched", async () => {
@@ -894,7 +972,7 @@ describe("QueueManager parallelism law", () => {
     expect(ghCalls).toEqual([["issue", "view", "16", "--json", "state", "--repo", "test/repo"]]);
   });
 
-  it("reconcileInProgressIssues() skips stories without an issue or not in progress", async () => {
+  it("reconcileInProgressIssues() skips stories without an issue, local repos, drafts, or review cards", async () => {
     const ghCalls: string[][] = [];
     const runner: ConstructorParameters<typeof QueueManager>[1]["commandRunner"] = (file, args, options) => {
       if (file === "gh") {
@@ -904,25 +982,41 @@ describe("QueueManager parallelism law", () => {
       return execFileSync(file, args, options);
     };
     const { store, queue } = makeQueue(2, runner);
-    const backlogWithIssue = makeStory({
-      id: "story-backlog",
-      column: "backlog",
-      issue: "https://github.com/test/repo/issues/1",
-    });
     const inProgressNoIssue = makeStory({
       id: "story-no-issue",
       column: "in_progress",
       issue: "",
     });
-    store.upsertStory(backlogWithIssue);
+    const localRepoWithIssue = makeStory({
+      id: "story-local-repo",
+      column: "backlog",
+      repo: "local/repo",
+      issue: "https://github.com/test/repo/issues/1",
+    });
+    const draftWithIssue = makeStory({
+      id: "story-draft",
+      column: "queued",
+      draft: true,
+      issue: "https://github.com/test/repo/issues/2",
+    });
+    const reviewWithIssue = makeStory({
+      id: "story-review",
+      column: "review",
+      issue: "https://github.com/test/repo/issues/3",
+    });
     store.upsertStory(inProgressNoIssue);
+    store.upsertStory(localRepoWithIssue);
+    store.upsertStory(draftWithIssue);
+    store.upsertStory(reviewWithIssue);
 
     const result = await queue.reconcileInProgressIssues();
 
     expect(result).toEqual({ checked: 0, purged: [], errors: [] });
     expect(ghCalls).toEqual([]);
-    expect(store.getStory(backlogWithIssue.id)).not.toBeNull();
     expect(store.getStory(inProgressNoIssue.id)).not.toBeNull();
+    expect(store.getStory(localRepoWithIssue.id)).not.toBeNull();
+    expect(store.getStory(draftWithIssue.id)).not.toBeNull();
+    expect(store.getStory(reviewWithIssue.id)).not.toBeNull();
   });
 
   it("reconcileReviewPrs() evicts PRs closed without merging from Review to Backlog", async () => {
