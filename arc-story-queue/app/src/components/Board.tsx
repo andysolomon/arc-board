@@ -6,6 +6,7 @@ import { useAsyncAction } from "../lib/useAsyncAction";
 import { AsyncButton } from "./AsyncButton";
 import { BOARD_COLUMNS } from "../lib/boardStore";
 import {
+  pointerDragExceededThreshold,
   pointerDropTargetFromPoint,
   queueOrderWithInsertion,
   type PointerDropTarget,
@@ -20,9 +21,17 @@ interface BoardViewProps {
 // Columns whose cards can be dragged, and the legal drop transitions.
 const DRAGGABLE: Column[] = ["backlog", "queued", "in_progress"];
 
+interface PointerSession {
+  id: string;
+  column: Column;
+  startX: number;
+  startY: number;
+}
+
 export function BoardView({ store, onOpen }: BoardViewProps) {
   const { busy: importBusy, run: runImport } = useAsyncAction();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pointerSession, setPointerSession] = useState<PointerSession | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragCol, setDragCol] = useState<Column | null>(null);
   const [dropCol, setDropCol] = useState<Column | null>(null);
@@ -40,12 +49,11 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
     }
   }
 
-  function isDroppable(target: Column): boolean {
-    if (!dragCol) return false;
-    if (target === "queued" && dragCol === "queued") return true; // reorder
-    if (target === "queued" && dragCol === "backlog") return true; // enqueue (guardrail)
-    if (target === "backlog" && dragCol === "queued") return true; // unqueue
-    if (target === "review" && dragCol === "in_progress") return true; // send to review
+  function isDroppable(from: Column, target: Column): boolean {
+    if (target === "queued" && from === "queued") return true; // reorder
+    if (target === "queued" && from === "backlog") return true; // enqueue (guardrail)
+    if (target === "backlog" && from === "queued") return true; // unqueue
+    if (target === "review" && from === "in_progress") return true; // send to review
     return false;
   }
 
@@ -67,10 +75,14 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
     }
   }
 
-  function updatePointerTarget(clientX: number, clientY: number) {
-    if (!dragId) return;
-    const target = pointerDropTargetFromPoint(clientX, clientY, dragId);
-    if (target && isDroppable(target.column)) {
+  function updatePointerTarget(
+    clientX: number,
+    clientY: number,
+    activeId: string,
+    activeCol: Column
+  ) {
+    const target = pointerDropTargetFromPoint(clientX, clientY, activeId);
+    if (target && isDroppable(activeCol, target.column)) {
       setDropCol(target.column);
       setDropBeforeId(target.beforeId);
     } else {
@@ -79,11 +91,15 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
     }
   }
 
-  async function handlePointerDrop(target: PointerDropTarget | null) {
-    const id = dragId;
-    const from = dragCol;
+  async function handlePointerDrop(
+    target: PointerDropTarget | null,
+    dropId: string,
+    dropFrom: Column
+  ) {
     endDrag();
-    if (!id || !from || !target || !isDroppable(target.column)) return;
+    if (!target || !isDroppable(dropFrom, target.column)) return;
+    const id = dropId;
+    const from = dropFrom;
 
     if (target.column === "queued") {
       if (from === "backlog") {
@@ -120,25 +136,49 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
   ) {
     if (event.button !== 0) return;
     event.stopPropagation();
-    setDragId(id);
-    setDragCol(column);
-    setDropCol(null);
-    setDropBeforeId(null);
-    updatePointerTarget(event.clientX, event.clientY);
+    setPointerSession({
+      id,
+      column,
+      startX: event.clientX,
+      startY: event.clientY,
+    });
   }
 
   useEffect(() => {
-    if (!dragId) return;
-    const activeDragId = dragId;
+    if (!pointerSession) return;
+    const { id, column, startX, startY } = pointerSession;
+    let armed = false;
+
+    function armDrag(clientX: number, clientY: number) {
+      armed = true;
+      setDragId(id);
+      setDragCol(column);
+      setDropCol(null);
+      setDropBeforeId(null);
+      updatePointerTarget(clientX, clientY, id, column);
+    }
 
     function onPointerMove(event: PointerEvent) {
+      if (!armed) {
+        if (!pointerDragExceededThreshold(startX, startY, event.clientX, event.clientY)) return;
+        armDrag(event.clientX, event.clientY);
+      }
       event.preventDefault();
-      updatePointerTarget(event.clientX, event.clientY);
+      updatePointerTarget(event.clientX, event.clientY, id, column);
     }
 
     function onPointerUp(event: PointerEvent) {
-      event.preventDefault();
-      void handlePointerDrop(pointerDropTargetFromPoint(event.clientX, event.clientY, activeDragId));
+      setPointerSession(null);
+      if (armed) {
+        event.preventDefault();
+        void handlePointerDrop(
+          pointerDropTargetFromPoint(event.clientX, event.clientY, id),
+          id,
+          column
+        );
+      } else {
+        onOpen?.(id);
+      }
     }
 
     window.addEventListener("pointermove", onPointerMove);
@@ -150,7 +190,7 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
     };
-  }, [dragId, dragCol]);
+  }, [pointerSession, onOpen]);
 
   return (
     <div className="sq-view sq-view--board">
@@ -198,10 +238,12 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
               onEnqueue={column === "backlog" ? handleEnqueue : undefined}
               onOpen={onOpen}
               draggableCards={draggable}
-              isDropTarget={dropCol === column && isDroppable(column)}
+              isDropTarget={dropCol === column && !!dragCol && isDroppable(dragCol, column)}
               draggingId={dragId}
               insertionBeforeId={dropCol === column && column === "queued" ? dropBeforeId : undefined}
-              showInsertionMarker={dropCol === column && column === "queued" && isDroppable(column)}
+              showInsertionMarker={
+                dropCol === column && column === "queued" && !!dragCol && isDroppable(dragCol, column)
+              }
               onCardPointerDragStart={(id, event) => handlePointerDragStart(id, column, event)}
             />
           );

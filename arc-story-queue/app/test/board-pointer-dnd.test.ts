@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pointerDropTargetFromPoint, queueOrderWithInsertion } from "../src/lib/pointerDnd";
+import { pointerDropTargetFromPoint, pointerDragExceededThreshold, POINTER_DRAG_THRESHOLD_PX, queueOrderWithInsertion } from "../src/lib/pointerDnd";
 
 function rect(top: number, height = 30): DOMRect {
   return {
@@ -46,6 +46,13 @@ describe("pointer board drag helpers", () => {
   it("computes queue reorder insertion before a target card or at the end", () => {
     expect(queueOrderWithInsertion(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
     expect(queueOrderWithInsertion(["a", "b", "c"], "a", null)).toEqual(["b", "c", "a"]);
+  });
+
+  it("treats sub-threshold movement as a click, not a drag", () => {
+    expect(pointerDragExceededThreshold(0, 0, 3, 3)).toBe(false);
+    expect(pointerDragExceededThreshold(0, 0, 5, 0)).toBe(false);
+    expect(pointerDragExceededThreshold(0, 0, POINTER_DRAG_THRESHOLD_PX, 0)).toBe(true);
+    expect(pointerDragExceededThreshold(10, 20, 10, 20 + POINTER_DRAG_THRESHOLD_PX)).toBe(true);
   });
 
   it("resolves queued insertion targets from pointer coordinates without HTML5 DnD", () => {
