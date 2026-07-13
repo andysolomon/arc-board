@@ -1,3 +1,10 @@
+## [2.8.2](https://github.com/andysolomon/arc-board/compare/v2.8.1...v2.8.2) (2026-07-13)
+
+
+### Bug Fixes
+
+* recover stale Tauri board via Refresh and watchdog ([#171](https://github.com/andysolomon/arc-board/issues/171)) ([a9c1e8e](https://github.com/andysolomon/arc-board/commit/a9c1e8e27660815d6a491ea82bc8a3513bcac404)), closes [#162](https://github.com/andysolomon/arc-board/issues/162)
+
 ## [2.8.1](https://github.com/andysolomon/arc-board/compare/v2.8.0...v2.8.1) (2026-07-13)
 
 
