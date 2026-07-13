@@ -98,6 +98,133 @@ describe("board SSE liveness and reconnect", () => {
     expect(store.getState().status).toBe("connected");
   });
 
+  it("watchdog forces reconnect when lastEventAt is null after connect grace", async () => {
+    const store = new BoardStore("http://127.0.0.1:1/mcp", {
+      storage: null,
+      liveness: { reconnectDelaysMs: [100], watchdogIntervalMs: 1_000, staleEventThresholdMs: 5_000 },
+    });
+    const sync = storeSync(store);
+    let connected = false;
+    const connectSpy = vi.spyOn(sync, "connect").mockImplementation(async () => {
+      connected = true;
+    });
+    vi.spyOn(sync, "isConnected").mockImplementation(() => connected);
+    const closeSpy = vi.spyOn(sync, "close").mockImplementation(async () => {
+      connected = false;
+    });
+    const refreshSpy = vi.spyOn(store, "refreshViews").mockResolvedValue(undefined);
+    vi.spyOn(sync, "lastEventAt", "get").mockReturnValue(null);
+
+    await store.connect();
+    expect(store.getState().status).toBe("connected");
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(closeSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect(closeSpy).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(connectSpy).toHaveBeenCalledTimes(2);
+    expect(store.getState().status).toBe("connected");
+    expect(refreshSpy).toHaveBeenCalled();
+  });
+
+  it("hydrate removes scoped stories missing from stories.list", async () => {
+    const store = new BoardStore("http://127.0.0.1:1/mcp", { storage: null });
+    const sync = storeSync(store);
+    vi.spyOn(sync, "connect").mockResolvedValue(undefined);
+    vi.spyOn(sync, "isConnected").mockReturnValue(true);
+
+    const project = {
+      id: "project-hydrate",
+      repo: "acme/hydrate",
+      path: "/tmp/hydrate",
+      branch: "main",
+      model: "vitest",
+      pid: 1,
+      worktreeRoot: "/tmp/wt",
+      status: "attached" as const,
+    };
+    store.e2eHydrate({
+      project,
+      activeProjectId: project.id,
+      projects: [project],
+      stories: [
+        {
+          id: "keep",
+          wid: "W-000201",
+          type: "story",
+          title: "Keep me",
+          repo: project.repo,
+          branch: "feat/keep",
+          worktree: "",
+          column: "backlog",
+          priority: "med",
+          size: "S",
+          epic: "",
+          taskClass: "feature",
+          tags: [],
+          description: "",
+          criteria: [],
+          draft: false,
+          issue: "#1",
+        },
+        {
+          id: "orphan",
+          wid: "W-000202",
+          type: "story",
+          title: "Remove me",
+          repo: project.repo,
+          branch: "feat/orphan",
+          worktree: "",
+          column: "backlog",
+          priority: "med",
+          size: "S",
+          epic: "",
+          taskClass: "feature",
+          tags: [],
+          description: "",
+          criteria: [],
+          draft: false,
+          issue: "#2",
+        },
+      ],
+    });
+
+    vi.spyOn(sync, "call").mockImplementation(async (tool) => {
+      if (tool === "stories.list") {
+        return [
+          {
+            id: "keep",
+            wid: "W-000201",
+            type: "story",
+            title: "Keep me",
+            repo: project.repo,
+            branch: "feat/keep",
+            worktree: "",
+            column: "backlog",
+            priority: "med",
+            size: "S",
+            epic: "",
+            taskClass: "feature",
+            tags: [],
+            description: "",
+            criteria: [],
+            draft: false,
+            issue: "#1",
+          },
+        ];
+      }
+      throw new Error(`unexpected tool: ${tool}`);
+    });
+
+    await store.hydrate();
+
+    const stories = store.getState().stories;
+    expect(stories.keep).toBeDefined();
+    expect(stories.orphan).toBeUndefined();
+  });
+
   it("ping notifications update lastEventAt without story handlers or view refresh", async () => {
     const onStoryUpdate = vi.fn();
     const onLifecycle = vi.fn();

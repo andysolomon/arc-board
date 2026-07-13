@@ -30,6 +30,7 @@ interface PointerSession {
 
 export function BoardView({ store, onOpen }: BoardViewProps) {
   const { busy: importBusy, run: runImport } = useAsyncAction();
+  const { busy: refreshBusy, run: runRefresh } = useAsyncAction();
   const [actionError, setActionError] = useState<string | null>(null);
   const [pointerSession, setPointerSession] = useState<PointerSession | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -205,17 +206,34 @@ export function BoardView({ store, onOpen }: BoardViewProps) {
                 : "No project attached"}
           </p>
         </div>
-        {state.project && (
-          <AsyncButton
-            type="button"
-            className="btn btn--secondary"
-            busy={importBusy}
-            onClick={() =>
-              runImport(() => runTransition(() => store.importIssues(state.project!.repo)))
-            }
-          >
-            Import from GitHub
-          </AsyncButton>
+        {(state.status === "connected" || state.project) && (
+          <div className="sq-view__actions">
+            {state.status === "connected" && (
+              <AsyncButton
+                type="button"
+                className="btn btn--secondary"
+                busy={refreshBusy}
+                data-testid="board-refresh"
+                onClick={() =>
+                  runRefresh(() => runTransition(() => store.refreshViews()))
+                }
+              >
+                Refresh
+              </AsyncButton>
+            )}
+            {state.project && (
+              <AsyncButton
+                type="button"
+                className="btn btn--secondary"
+                busy={importBusy}
+                onClick={() =>
+                  runImport(() => runTransition(() => store.importIssues(state.project!.repo)))
+                }
+              >
+                Import from GitHub
+              </AsyncButton>
+            )}
+          </div>
         )}
       </header>
       {(actionError || (!state.project && state.error)) && (

@@ -33,6 +33,7 @@ import {
   createInitialBoardState,
   liveWorkerCount as computeLiveWorkerCount,
   projectIdentity,
+  replaceStoriesInState,
   reservedWorkerCount as computeReservedWorkerCount,
   storiesForColumn,
   upsertStoryInState,
@@ -71,6 +72,7 @@ export {
   hasLiveWorker,
   liveWorkerCount,
   reservedWorkerCount,
+  replaceStoriesInState,
   storiesForColumn,
   upsertStoryInState,
   type BoardListener,
@@ -164,6 +166,7 @@ export class BoardStore {
   private isReconnecting = false;
   private reconnectAttempt = 0;
   private watchdogTimer: ReturnType<typeof setInterval> | undefined;
+  private watchdogStartedAt: number | null = null;
   private removeFocusListeners: (() => void) | undefined;
   private readonly reconnectDelaysMs: number[];
   private readonly watchdogIntervalMs: number;
@@ -336,6 +339,7 @@ export class BoardStore {
   private startWatchdog(): void {
     this.stopWatchdog();
     if (this.watchdogIntervalMs <= 0) return;
+    this.watchdogStartedAt = Date.now();
     this.watchdogTimer = setInterval(() => {
       void this.checkWatchdog();
     }, this.watchdogIntervalMs);
@@ -350,13 +354,15 @@ export class BoardStore {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = undefined;
     }
+    this.watchdogStartedAt = null;
   }
 
   private async checkWatchdog(): Promise<void> {
     if (this.disposed || this.state.status !== "connected") return;
     const last = this.sync.lastEventAt;
-    if (last === null) return;
-    if (Date.now() - last <= this.staleEventThresholdMs) return;
+    const staleSince = last ?? this.watchdogStartedAt;
+    if (staleSince === null) return;
+    if (Date.now() - staleSince <= this.staleEventThresholdMs) return;
     await this.sync.close();
     if (this.disposed) return;
     this.patch({ status: "connecting", error: undefined });
@@ -666,9 +672,7 @@ export class BoardStore {
     const args = this.activeProjectArgs();
     if (!args) throw new Error("No project attached");
     const stories = await this.sync.call<Story[]>("stories.list", args);
-    this.reduce((state) =>
-      stories.reduce((s, story) => upsertStoryInState(s, story), state)
-    );
+    this.reduce((state) => replaceStoriesInState(state, stories));
   }
 
   async enqueueStory(id: string): Promise<Story> {

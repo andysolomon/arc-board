@@ -9,6 +9,7 @@ import {
   type BoardState,
   createInitialBoardState,
   liveWorkerCount,
+  replaceStoriesInState,
   reservedWorkerCount,
   storiesForColumn,
   upsertStoryInState,
@@ -107,5 +108,20 @@ describe("board state reducers (transport-free)", () => {
     });
     expect(liveWorkerCount(state)).toBe(1);
     expect(reservedWorkerCount(state)).toBe(0);
+  });
+
+  it("replaceStoriesInState drops scoped orphans and keeps other repos", () => {
+    let state: BoardState = { ...createInitialBoardState(), project };
+    state = upsertStoryInState(state, story({ id: "keep", wid: "W-000010" }));
+    state = upsertStoryInState(state, story({ id: "drop", wid: "W-000011" }));
+    state = upsertStoryInState(state, story({ id: "other", wid: "W-000099", repo: "other/repo" }));
+    state = { ...state, queueOrder: ["keep", "drop"], trackedIds: ["keep", "drop", "other"] };
+
+    const next = replaceStoriesInState(state, [story({ id: "keep", wid: "W-000010", title: "Still here" })]);
+
+    expect(Object.keys(next.stories).sort()).toEqual(["keep", "other"]);
+    expect(next.stories.keep.title).toBe("Still here");
+    expect(next.queueOrder).toEqual(["keep"]);
+    expect(next.trackedIds).toEqual(["keep", "other"]);
   });
 });

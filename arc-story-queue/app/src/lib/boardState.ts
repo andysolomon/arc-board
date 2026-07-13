@@ -148,6 +148,30 @@ export function upsertStoryInState(state: BoardState, story: Story): BoardState 
   return { ...state, stories, trackedIds, detail };
 }
 
+/** Reconcile project-scoped stories with a fresh list: upsert and drop scoped orphans. */
+export function replaceStoriesInState(state: BoardState, stories: Story[]): BoardState {
+  const matchesRepo = activeRepoFilter(state);
+  const incomingIds = new Set(stories.map((story) => story.id));
+  const keptStories = Object.fromEntries(
+    Object.entries(state.stories).filter(
+      ([id, story]) => !matchesRepo(story) || incomingIds.has(id)
+    )
+  ) as Record<string, BoardStory>;
+
+  let next = { ...state, stories: keptStories };
+  for (const story of stories) {
+    next = upsertStoryInState(next, story);
+  }
+
+  const storyIds = new Set(Object.keys(next.stories));
+  const queueOrder = next.queueOrder.filter((id) => storyIds.has(id));
+  const trackedIds = next.trackedIds.filter((id) => storyIds.has(id));
+  const detail =
+    next.detail && storyIds.has(next.detail.story.id) ? next.detail : null;
+
+  return { ...next, queueOrder, trackedIds, detail };
+}
+
 export function applyStoryUpdate(state: BoardState, event: StoryUpdateEvent): BoardState {
   const existing = state.stories[event.id];
   const base: BoardStory = existing ?? {
