@@ -1,6 +1,21 @@
 import type { Column } from "arc-contracts";
 import { BOARD_COLUMNS } from "./boardStore";
 
+/** Movement required before a board card pointer gesture becomes a drag. */
+export const POINTER_DRAG_THRESHOLD_PX = 6;
+
+export function pointerDragExceededThreshold(
+  startX: number,
+  startY: number,
+  clientX: number,
+  clientY: number,
+  threshold = POINTER_DRAG_THRESHOLD_PX
+): boolean {
+  const dx = clientX - startX;
+  const dy = clientY - startY;
+  return Math.hypot(dx, dy) >= threshold;
+}
+
 export interface PointerDropTarget {
   column: Column;
   beforeId: string | null;

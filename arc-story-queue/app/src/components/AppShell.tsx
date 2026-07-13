@@ -105,7 +105,9 @@ export function AppShell({ store }: AppShellProps) {
     try {
       await store.openStory(id);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error("open story failed:", err);
+      store.notify("error", msg);
     }
   }
 
