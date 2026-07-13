@@ -1,3 +1,10 @@
+## [2.8.3](https://github.com/andysolomon/arc-board/compare/v2.8.2...v2.8.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* purge closed GitHub backlog cards ([2c86906](https://github.com/andysolomon/arc-board/commit/2c869063801a21546aa920020099d6daf79c4f63)), closes [#172](https://github.com/andysolomon/arc-board/issues/172)
+
 ## [2.8.2](https://github.com/andysolomon/arc-board/compare/v2.8.1...v2.8.2) (2026-07-13)
 
 
