@@ -31,6 +31,10 @@ Columns: **Backlog** → **Queued** → **In Progress** → **Review** → **Don
 
 The app doesn't clone or spawn. It discovers running Claude Code sessions over MCP; attaching one turns its cwd into a project. Board / Queue / Observability scope to the active project.
 
+**Local `Project` ≠ GitHub Project.** An attached session `Project` is ephemeral (in-memory registry). A **GitHub Project** binding is durable SQLite state keyed by `repo` (`project.github_board.get` / `link` / `ensure`), used to mirror board columns via a single-select field (`Status` when option names already match columns, otherwise `Arc Column`). One GitHub Project per repo by convention (`Arc Board · <repo-name>`). Call `project.github_board.ensure` with `autoCreate: true` to create when missing.
+
+Outbound: column transitions sync Status when a binding exists. Inbound: the shared reconcile timer refreshes `story.githubBoardColumn`, skips `queue.next` for remote `in_progress|review|done`, and reflects other remote Status values onto non-reserved stories (local worktree reservations always win). Orchestrator view exposes Ensure / Link URL / Open on GitHub and last sync health.
+
 ## Getting started
 
 ```bash

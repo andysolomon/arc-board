@@ -43,6 +43,8 @@ The helper performs deterministic plumbing only:
 4. One `story.update` line announcing that Fable pulled the story.
 5. Prints a JSON assignment containing `project`, `story`, and a ready-to-follow prompt.
 
+Optional (operator / board): `project.github_board.ensure({ projectId, autoCreate: true })` finds or creates the per-repo GitHub Project (`Arc Board · <repo>`) and persists Status field IDs. The pull loop does not call this automatically.
+
 If `queue.next` returns no story, check whether all queued stories are blocked on mutex keys (`waiting · <key> in progress`) or the global `maxParallel` cap before retrying.
 
 If not using the helper, call the MCP tools directly in the same order:

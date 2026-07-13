@@ -53,6 +53,11 @@ describe("daemon persistence (file-backed SQLite)", () => {
     daemon.store.upsertStory(makeStory("p1"));
     daemon.store.enqueue("p1");
     daemon.queue.setConfig({ maxParallel: 5, autoRun: true, requireOrchestrationPlan: false });
+    daemon.queue.linkGithubBoard({
+      repo: "acme/api",
+      githubProjectId: "PVT_persist",
+      autoCreate: true,
+    });
     await daemon.close();
 
     // fresh daemon, same db file
@@ -70,6 +75,10 @@ describe("daemon persistence (file-backed SQLite)", () => {
       maxParallel: 5,
       requireOrchestrationPlan: false,
       runTraceView: "v2-aware",
+    });
+    expect(daemon.queue.getGithubBoardBinding({ repo: "acme/api" })).toMatchObject({
+      githubProjectId: "PVT_persist",
+      autoCreate: true,
     });
     await daemon.close();
   }, 60_000);

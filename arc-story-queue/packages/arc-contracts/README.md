@@ -3,7 +3,7 @@
 The shared seam. Both `arc-orchestrator` and `arc-story-queue` import these types/schemas so they evolve together without a runtime dependency on each other.
 
 - `src/index.ts` — TypeScript source of truth.
-- `schema/*.schema.json` — JSON Schema for stories, handoffs, plans, run records, and projects (validate at the MCP boundary).
+- `schema/*.schema.json` — JSON Schema for stories, handoffs, plans, run records, projects, and GitHub board bindings (validate at the MCP boundary).
 
 ## Outcome mapping
 

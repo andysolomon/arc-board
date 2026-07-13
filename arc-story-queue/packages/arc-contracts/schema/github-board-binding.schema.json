@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arc.dev/schema/github-board-binding.json",
+  "title": "GithubBoardBinding",
+  "type": "object",
+  "required": ["repo", "githubProjectId", "autoCreate", "updatedAt"],
+  "properties": {
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "githubProjectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "githubProjectNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "githubProjectUrl": {
+      "type": "string"
+    },
+    "githubProjectTitle": {
+      "type": "string"
+    },
+    "statusFieldId": {
+      "type": "string"
+    },
+    "statusOptionIds": {
+      "type": "object",
+      "properties": {
+        "backlog": { "type": "string" },
+        "queued": { "type": "string" },
+        "in_progress": { "type": "string" },
+        "review": { "type": "string" },
+        "done": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "autoCreate": {
+      "type": "boolean"
+    },
+    "lastSyncedAt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lastSyncError": {
+      "type": ["string", "null"]
+    },
+    "updatedAt": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

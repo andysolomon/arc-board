@@ -6,6 +6,7 @@ import {
   parseWidFromTitle,
   widSequence,
   type AppConfig,
+  type GithubBoardBinding,
   type Handoff,
   type IntakeItem,
   type KnownProject,
@@ -77,6 +78,10 @@ export class StoryStore {
         last_used_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_known_projects_last_used_at ON known_projects(last_used_at DESC);
+      CREATE TABLE IF NOT EXISTS github_board_bindings (
+        repo TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      );
     `);
     this.reconcileAllStoryWids();
   }
@@ -111,6 +116,35 @@ export class StoryStore {
   forgetKnownProject(path: string): boolean {
     const result = this.db.prepare("DELETE FROM known_projects WHERE path = ?").run(path);
     return result.changes > 0;
+  }
+
+  getGithubBoardBinding(repo: string): GithubBoardBinding | null {
+    const row = this.db.prepare("SELECT data FROM github_board_bindings WHERE repo = ?").get(repo) as
+      | { data: string }
+      | undefined;
+    return row ? (JSON.parse(row.data) as GithubBoardBinding) : null;
+  }
+
+  upsertGithubBoardBinding(binding: GithubBoardBinding): GithubBoardBinding {
+    this.db
+      .prepare(
+        `INSERT INTO github_board_bindings (repo, data) VALUES (?, ?)
+         ON CONFLICT(repo) DO UPDATE SET data = excluded.data`
+      )
+      .run(binding.repo, JSON.stringify(binding));
+    return binding;
+  }
+
+  deleteGithubBoardBinding(repo: string): boolean {
+    const result = this.db.prepare("DELETE FROM github_board_bindings WHERE repo = ?").run(repo);
+    return result.changes > 0;
+  }
+
+  listGithubBoardBindings(): GithubBoardBinding[] {
+    const rows = this.db
+      .prepare("SELECT data FROM github_board_bindings ORDER BY repo ASC")
+      .all() as Array<{ data: string }>;
+    return rows.map((row) => JSON.parse(row.data) as GithubBoardBinding);
   }
 
   /** Monotonic work-id allocator for deterministically drafted stories. */

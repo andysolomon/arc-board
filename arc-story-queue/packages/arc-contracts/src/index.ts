@@ -6,6 +6,7 @@ import type { RunTraceViewMode, RoutingTraceSidecar } from "./routing-trace-side
 export {
   dispatchBlockReason,
   isDispatchEligible,
+  isGithubBoardRemoteBusy,
   mutexConflict,
   mutexKeysFromTags,
   storyMutexKeys,
@@ -258,6 +259,10 @@ export interface Story {
   issue?: string | null;        // "#215" once filed through Fable
   pr?: string | null;
   prState?: "open" | "merged" | "closed";
+  /** GitHub Project (v2) item node id when the issue is on the bound board. */
+  githubProjectItemId?: string | null;
+  /** Last observed GitHub Project Status option mapped to a board column. */
+  githubBoardColumn?: Column | null;
   /** Epoch ms when the story entered Done (for automatic retention). */
   doneAt?: number;
   annotation?: AnnotateOutcome;
@@ -324,6 +329,36 @@ export interface KnownProject {
   model: string;
   lastUsedAt: number;
   exists: boolean;
+}
+
+/**
+ * GitHub Project (v2) Status option node IDs keyed by local board column.
+ * Option *names* on GitHub are expected to match these column ids.
+ */
+export type GithubBoardStatusOptionIds = Record<Column, string>;
+
+/**
+ * Durable per-repo link to a GitHub Project board.
+ * Distinct from the in-memory attached `Project` (Claude/Fable session).
+ */
+export interface GithubBoardBinding {
+  repo: string;
+  githubProjectId: string;
+  githubProjectNumber?: number;
+  githubProjectUrl?: string;
+  githubProjectTitle?: string;
+  statusFieldId?: string;
+  statusOptionIds?: Partial<GithubBoardStatusOptionIds>;
+  autoCreate: boolean;
+  lastSyncedAt?: number;
+  lastSyncError?: string | null;
+  updatedAt: number;
+}
+
+/** Convention title for auto-created per-repo GitHub Projects. */
+export function githubBoardTitleForRepo(repo: string): string {
+  const short = repo.includes("/") ? repo.slice(repo.lastIndexOf("/") + 1) : repo;
+  return `Arc Board · ${short}`;
 }
 
 export interface FsDirEntry {
@@ -655,6 +690,10 @@ export const storySchema: JsonSchema = {
     issue: { type: ["string", "null"] },
     pr: { type: ["string", "null"] },
     prState: { enum: ["open", "merged", "closed"] },
+    githubProjectItemId: { type: ["string", "null"] },
+    githubBoardColumn: {
+      anyOf: [{ enum: ["backlog", "queued", "in_progress", "review", "done"] }, { type: "null" }],
+    },
     doneAt: { type: "number" },
     annotation: { enum: ["accepted", "rejected", "blocked", "verification-failed", "escalated"] },
     plan: { anyOf: [planObjectSchema, { type: "null" }] },
@@ -743,6 +782,38 @@ export const projectSchema: JsonSchema = {
   additionalProperties: false,
 };
 
+export const githubBoardBindingSchema: JsonSchema = {
+  $schema: "http://json-schema.org/draft-07/schema#",
+  $id: "https://arc.dev/schema/github-board-binding.json",
+  title: "GithubBoardBinding",
+  type: "object",
+  required: ["repo", "githubProjectId", "autoCreate", "updatedAt"],
+  properties: {
+    repo: nonEmptyString,
+    githubProjectId: nonEmptyString,
+    githubProjectNumber: { type: "integer", minimum: 1 },
+    githubProjectUrl: { type: "string" },
+    githubProjectTitle: { type: "string" },
+    statusFieldId: { type: "string" },
+    statusOptionIds: {
+      type: "object",
+      properties: {
+        backlog: { type: "string" },
+        queued: { type: "string" },
+        in_progress: { type: "string" },
+        review: { type: "string" },
+        done: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    autoCreate: { type: "boolean" },
+    lastSyncedAt: { type: "integer", minimum: 0 },
+    lastSyncError: { type: ["string", "null"] },
+    updatedAt: { type: "integer", minimum: 0 },
+  },
+  additionalProperties: false,
+};
+
 export const boardActionErrorSchema: JsonSchema = {
   $schema: "http://json-schema.org/draft-07/schema#",
   $id: "https://arc.dev/schema/board-action-error.json",
@@ -781,6 +852,7 @@ export const schemas = {
   handoff: handoffSchema,
   runRecord: runRecordSchema,
   project: projectSchema,
+  githubBoardBinding: githubBoardBindingSchema,
   boardActionError: boardActionErrorSchema,
 } as const;
 
@@ -842,6 +914,37 @@ export function validateProject(project: unknown): project is Project {
   return assertSchema<Project>("Project", projectSchema, project);
 }
 
+export function validateGithubBoardBinding(binding: unknown): binding is GithubBoardBinding {
+  return assertSchema<GithubBoardBinding>("GithubBoardBinding", githubBoardBindingSchema, binding);
+}
+
+/** Normalize a partial link payload into a durable binding (merges over existing when provided). */
+export function normalizeGithubBoardBinding(
+  input: Partial<GithubBoardBinding> & Pick<GithubBoardBinding, "repo" | "githubProjectId">,
+  existing?: GithubBoardBinding | null
+): GithubBoardBinding {
+  const statusOptionIds = {
+    ...(existing?.statusOptionIds ?? {}),
+    ...(input.statusOptionIds ?? {}),
+  };
+  const hasStatusOptions = Object.keys(statusOptionIds).length > 0;
+  return {
+    repo: input.repo,
+    githubProjectId: input.githubProjectId,
+    githubProjectNumber:
+      input.githubProjectNumber ?? existing?.githubProjectNumber,
+    githubProjectUrl: input.githubProjectUrl ?? existing?.githubProjectUrl,
+    githubProjectTitle: input.githubProjectTitle ?? existing?.githubProjectTitle,
+    statusFieldId: input.statusFieldId ?? existing?.statusFieldId,
+    statusOptionIds: hasStatusOptions ? statusOptionIds : existing?.statusOptionIds,
+    autoCreate: input.autoCreate ?? existing?.autoCreate ?? false,
+    lastSyncedAt: input.lastSyncedAt ?? existing?.lastSyncedAt,
+    lastSyncError:
+      input.lastSyncError !== undefined ? input.lastSyncError : existing?.lastSyncError,
+    updatedAt: input.updatedAt ?? Date.now(),
+  };
+}
+
 /** Numeric suffix from a canonical work id (`W-000046` → `46`). */
 export function widSequence(wid: string): number {
   const match = wid.match(/^W-(\d{6})$/);
@@ -892,6 +995,17 @@ export function normalizeStory(
     ...(typeof value.issue === "string" || value.issue === null ? { issue: value.issue } : {}),
     ...(typeof value.pr === "string" || value.pr === null ? { pr: value.pr } : {}),
     ...(value.prState === "open" || value.prState === "merged" || value.prState === "closed" ? { prState: value.prState } : {}),
+    ...(typeof value.githubProjectItemId === "string" || value.githubProjectItemId === null
+      ? { githubProjectItemId: value.githubProjectItemId }
+      : {}),
+    ...(value.githubBoardColumn === "backlog" ||
+    value.githubBoardColumn === "queued" ||
+    value.githubBoardColumn === "in_progress" ||
+    value.githubBoardColumn === "review" ||
+    value.githubBoardColumn === "done" ||
+    value.githubBoardColumn === null
+      ? { githubBoardColumn: value.githubBoardColumn }
+      : {}),
     ...(typeof value.doneAt === "number" ? { doneAt: value.doneAt } : {}),
     ...(
       value.annotation === "accepted" ||

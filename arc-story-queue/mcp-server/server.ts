@@ -413,6 +413,80 @@ function registerTools(server: McpServer, ctx: ReturnType<typeof createSharedCon
   );
 
   server.registerTool(
+    "project.github_board.get",
+    {
+      title: "Get GitHub Project binding",
+      description:
+        "Return the durable GitHub Project (v2) binding for a repo. Distinct from the attached session Project.",
+      inputSchema: {
+        repo: z.string().optional(),
+        projectId: z.string().optional(),
+      },
+    },
+    async (args) => jsonResult(queue.getGithubBoardBinding(args))
+  );
+
+  server.registerTool(
+    "project.github_board.link",
+    {
+      title: "Link GitHub Project binding",
+      description:
+        "Persist or update the GitHub Project binding for a repo (project id, Status field/option ids, autoCreate).",
+      inputSchema: {
+        repo: z.string().optional(),
+        projectId: z.string().optional(),
+        githubProjectId: z.string(),
+        githubProjectNumber: z.number().int().positive().optional(),
+        githubProjectUrl: z.string().optional(),
+        githubProjectTitle: z.string().optional(),
+        statusFieldId: z.string().optional(),
+        statusOptionIds: z
+          .object({
+            backlog: z.string().optional(),
+            queued: z.string().optional(),
+            in_progress: z.string().optional(),
+            review: z.string().optional(),
+            done: z.string().optional(),
+          })
+          .optional(),
+        autoCreate: z.boolean().optional(),
+        lastSyncedAt: z.number().int().nonnegative().optional(),
+        lastSyncError: z.string().nullable().optional(),
+      },
+    },
+    async (args) => jsonResult(queue.linkGithubBoard(args))
+  );
+
+  server.registerTool(
+    "project.github_board.unlink",
+    {
+      title: "Unlink GitHub Project binding",
+      description: "Remove the durable GitHub Project binding for a repo.",
+      inputSchema: {
+        repo: z.string().optional(),
+        projectId: z.string().optional(),
+      },
+    },
+    async (args) => jsonResult(queue.unlinkGithubBoard(args))
+  );
+
+  server.registerTool(
+    "project.github_board.ensure",
+    {
+      title: "Ensure GitHub Project board",
+      description:
+        "Find or create Arc Board · <repo>, resolve Status/Arc Column field IDs, and persist the binding. Set autoCreate true to create when missing.",
+      inputSchema: {
+        repo: z.string().optional(),
+        projectId: z.string().optional(),
+        autoCreate: z.boolean().optional(),
+        projectNumber: z.number().int().positive().optional(),
+      },
+    },
+    async (args) => jsonResult(queue.ensureGithubBoard(args))
+  );
+
+  server.registerTool(
     "projects.known.list",
     {
       title: "List known projects",
@@ -852,6 +926,7 @@ export async function startDaemon(opts: DaemonOptions = {}): Promise<DaemonHandl
     ? setInterval(() => {
         void ctx.queue.reconcileReviewPrs();
         void ctx.queue.reconcileInProgressIssues();
+        void ctx.queue.reconcileGithubBoards();
         if (doneRetentionMs > 0) {
           void ctx.queue.reconcileDoneRetention(doneRetentionMs);
         }

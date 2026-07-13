@@ -337,6 +337,16 @@ describe("contract validation at the MCP boundary", () => {
     });
   });
 
+  it("rejects an invalid GitHub board binding before persist", () => {
+    const { queue } = makeQueue();
+    expect(() =>
+      queue.linkGithubBoard({
+        repo: "acme/api",
+        githubProjectId: "",
+      })
+    ).toThrow(/Invalid GithubBoardBinding/);
+  });
+
   it("round-trips legacy runs without timestamps through store.getRuns()", () => {
     const store = new StoryStore(":memory:");
     const legacy = makeRun({ id: "legacy-run", startedAt: undefined, finishedAt: undefined });

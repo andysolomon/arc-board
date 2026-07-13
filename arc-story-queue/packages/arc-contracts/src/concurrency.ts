@@ -39,11 +39,22 @@ export function isDispatchEligible(
   return mutexConflict(candidate, inProgress) === null;
 }
 
-/** Concise board copy for a queued story blocked by label concurrency. */
+/** True when GitHub Project Status says the issue is already in flight elsewhere. */
+export function isGithubBoardRemoteBusy(
+  story: Pick<Story, "githubBoardColumn">
+): boolean {
+  const column = story.githubBoardColumn;
+  return column === "in_progress" || column === "review" || column === "done";
+}
+
+/** Concise board copy for a queued story blocked by label concurrency or remote Status. */
 export function dispatchBlockReason(
-  candidate: Pick<Story, "tags">,
+  candidate: Pick<Story, "tags" | "githubBoardColumn">,
   inProgress: Array<Pick<Story, "tags">>
 ): string | null {
+  if (isGithubBoardRemoteBusy(candidate)) {
+    return `waiting · github ${candidate.githubBoardColumn}`;
+  }
   const conflict = mutexConflict(candidate, inProgress);
   if (!conflict) return null;
   return `waiting · ${conflict} in progress`;
