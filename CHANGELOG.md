@@ -1,3 +1,10 @@
+## [2.8.1](https://github.com/andysolomon/arc-board/compare/v2.8.0...v2.8.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* open board drawer on click below drag threshold ([#170](https://github.com/andysolomon/arc-board/issues/170)) ([2628540](https://github.com/andysolomon/arc-board/commit/2628540dc4af79c6fe51b5cd7a49c6a9517c3686)), closes [#161](https://github.com/andysolomon/arc-board/issues/161)
+
 # [2.8.0](https://github.com/andysolomon/arc-board/compare/v2.7.0...v2.8.0) (2026-07-13)
 
 
