@@ -1,3 +1,10 @@
+# [2.8.0](https://github.com/andysolomon/arc-board/compare/v2.7.0...v2.8.0) (2026-07-13)
+
+
+### Features
+
+* **story-queue:** sync board columns with GitHub Projects ([9ac45c3](https://github.com/andysolomon/arc-board/commit/9ac45c3fb0df9db13661ff573e231cc33c46878e)), closes [#164](https://github.com/andysolomon/arc-board/issues/164) [#165](https://github.com/andysolomon/arc-board/issues/165) [#166](https://github.com/andysolomon/arc-board/issues/166) [#167](https://github.com/andysolomon/arc-board/issues/167) [#168](https://github.com/andysolomon/arc-board/issues/168)
+
 # [2.7.0](https://github.com/andysolomon/arc-board/compare/v2.6.0...v2.7.0) (2026-07-12)
 
 
